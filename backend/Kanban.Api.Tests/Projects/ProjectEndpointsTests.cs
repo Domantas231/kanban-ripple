@@ -261,6 +261,155 @@ public sealed class ProjectEndpointsTests : IClassFixture<ProjectsApiFactory>
         Assert.Equal(2, page2.Page);
     }
 
+    [Fact]
+    public async Task GetSwimlane_ReturnsNestedBoardsColumnsCardsAndCounts()
+    {
+        var ownerUserId = await _factory.CreateUserAsync(UniqueEmail("swimlane-owner"));
+        using var client = CreateClient(ownerUserId);
+
+        var create = await client.PostAsJsonAsync("/api/projects", new { name = "Swimlane Project" });
+        create.EnsureSuccessStatusCode();
+
+        var project = await create.Content.ReadFromJsonAsync<Project>();
+        Assert.NotNull(project);
+
+        var activeBoardId = Guid.NewGuid();
+        var archivedBoardId = Guid.NewGuid();
+        var firstColumnId = Guid.NewGuid();
+        var secondColumnId = Guid.NewGuid();
+        var archivedColumnId = Guid.NewGuid();
+        var now = DateTime.UtcNow;
+
+        await _factory.WithDbContextAsync(async db =>
+        {
+            db.Boards.AddRange(
+                new Board
+                {
+                    Id = activeBoardId,
+                    ProjectId = project!.Id,
+                    Name = "Active Board",
+                    Position = 1000,
+                    CreatedAt = now,
+                    UpdatedAt = now
+                },
+                new Board
+                {
+                    Id = archivedBoardId,
+                    ProjectId = project!.Id,
+                    Name = "Archived Board",
+                    Position = 2000,
+                    CreatedAt = now,
+                    UpdatedAt = now,
+                    DeletedAt = now
+                });
+
+            db.Columns.AddRange(
+                new Column
+                {
+                    Id = firstColumnId,
+                    BoardId = activeBoardId,
+                    Name = "Todo",
+                    Position = 1000,
+                    CreatedAt = now,
+                    UpdatedAt = now
+                },
+                new Column
+                {
+                    Id = secondColumnId,
+                    BoardId = activeBoardId,
+                    Name = "Doing",
+                    Position = 2000,
+                    CreatedAt = now,
+                    UpdatedAt = now
+                },
+                new Column
+                {
+                    Id = archivedColumnId,
+                    BoardId = activeBoardId,
+                    Name = "Archived Column",
+                    Position = 3000,
+                    CreatedAt = now,
+                    UpdatedAt = now,
+                    DeletedAt = now
+                });
+
+            db.Cards.AddRange(
+                new Card
+                {
+                    Id = Guid.NewGuid(),
+                    ColumnId = firstColumnId,
+                    Title = "Todo A",
+                    Position = 1000,
+                    CreatedAt = now,
+                    UpdatedAt = now
+                },
+                new Card
+                {
+                    Id = Guid.NewGuid(),
+                    ColumnId = firstColumnId,
+                    Title = "Todo B",
+                    Position = 2000,
+                    CreatedAt = now,
+                    UpdatedAt = now
+                },
+                new Card
+                {
+                    Id = Guid.NewGuid(),
+                    ColumnId = secondColumnId,
+                    Title = "Doing A",
+                    Position = 1000,
+                    CreatedAt = now,
+                    UpdatedAt = now
+                },
+                new Card
+                {
+                    Id = Guid.NewGuid(),
+                    ColumnId = secondColumnId,
+                    Title = "Doing Archived",
+                    Position = 2000,
+                    CreatedAt = now,
+                    UpdatedAt = now,
+                    DeletedAt = now
+                },
+                new Card
+                {
+                    Id = Guid.NewGuid(),
+                    ColumnId = archivedColumnId,
+                    Title = "Archived Column Card",
+                    Position = 1000,
+                    CreatedAt = now,
+                    UpdatedAt = now
+                });
+
+            await db.SaveChangesAsync();
+        });
+
+        var response = await client.GetAsync($"/api/projects/{project!.Id}/swimlane");
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        var swimlane = await response.Content.ReadFromJsonAsync<SwimlaneView>();
+        Assert.NotNull(swimlane);
+        Assert.Equal(project.Id, swimlane!.ProjectId);
+
+        Assert.Single(swimlane.Boards);
+        var board = swimlane.Boards[0];
+        Assert.Equal(activeBoardId, board.Board.Id);
+        Assert.Equal("Active Board", board.Board.Name);
+
+        Assert.Equal(2, board.Columns.Count);
+        Assert.Equal(new[] { firstColumnId, secondColumnId }, board.Columns.Select(x => x.Column.Id));
+
+        var todo = board.Columns[0];
+        Assert.Equal(2, todo.CardCount);
+        Assert.Equal(2, todo.Cards.Count);
+        Assert.Equal(new[] { "Todo A", "Todo B" }, todo.Cards.Select(x => x.Title));
+
+        var doing = board.Columns[1];
+        Assert.Equal(1, doing.CardCount);
+        Assert.Single(doing.Cards);
+        Assert.Equal("Doing A", doing.Cards[0].Title);
+    }
+
     private HttpClient CreateClient(Guid userId)
     {
         var client = _factory.CreateClient(new WebApplicationFactoryClientOptions
