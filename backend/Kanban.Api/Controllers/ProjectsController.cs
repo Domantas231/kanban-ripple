@@ -1,6 +1,7 @@
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using Kanban.Api.Models;
+using Kanban.Api.Services.Invitations;
 using Kanban.Api.Services.Projects;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -13,10 +14,12 @@ namespace Kanban.Api.Controllers;
 public sealed class ProjectsController : ControllerBase
 {
     private readonly IProjectService _projectService;
+    private readonly IInvitationService _invitationService;
 
-    public ProjectsController(IProjectService projectService)
+    public ProjectsController(IProjectService projectService, IInvitationService invitationService)
     {
         _projectService = projectService;
+        _invitationService = invitationService;
     }
 
     [HttpGet]
@@ -315,6 +318,33 @@ public sealed class ProjectsController : ControllerBase
         catch (UnauthorizedAccessException ex)
         {
             return StatusCode(StatusCodes.Status403Forbidden, new { message = ex.Message });
+        }
+    }
+
+    [HttpPost("{id:guid}/invite")]
+    public async Task<ActionResult<InvitationCreatedResponse>> Invite(Guid id, [FromBody] CreateInvitationRequest request)
+    {
+        if (!TryGetUserId(out var userId))
+        {
+            return Unauthorized(new { message = "Invalid authenticated user." });
+        }
+
+        try
+        {
+            await _invitationService.CreateInvitationAsync(id, userId, request.Email);
+            return Ok(new InvitationCreatedResponse("Invitation sent."));
+        }
+        catch (KeyNotFoundException ex)
+        {
+            return NotFound(new { message = ex.Message });
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, new { message = ex.Message });
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
         }
     }
 
