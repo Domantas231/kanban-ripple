@@ -9,6 +9,110 @@ namespace Kanban.Api.Tests.Boards;
 public class BoardServicePropertyTests
 {
     [Fact]
+    public async Task Property_26_CreateWithoutNameReturnsError()
+    {
+        var fixture = CreateFixture();
+        var ownerId = Guid.NewGuid();
+        var project = await fixture.ProjectService.CreateAsync(ownerId, "Board name validation project", ProjectType.Team);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => fixture.BoardService.CreateAsync(project.Id, ownerId, ""));
+
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => fixture.BoardService.CreateAsync(project.Id, ownerId, "   "));
+
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => fixture.BoardService.CreateAsync(project.Id, ownerId, null!));
+    }
+
+    [Fact]
+    public async Task Property_27_UpdateNamePersistsAndSubsequentQueryReturnsNewName()
+    {
+        var fixture = CreateFixture();
+        var ownerId = Guid.NewGuid();
+        var project = await fixture.ProjectService.CreateAsync(ownerId, "Board update persistence project", ProjectType.Team);
+        var board = await fixture.BoardService.CreateAsync(project.Id, ownerId, "Original");
+
+        await fixture.BoardService.UpdateAsync(board.Id, ownerId, new UpdateBoardDto("Renamed", board.Position));
+
+        var queriedById = await fixture.BoardService.GetByIdAsync(board.Id, ownerId);
+        var queriedFromList = await fixture.BoardService.ListAsync(project.Id, ownerId);
+
+        Assert.Equal("Renamed", queriedById.Name);
+        Assert.Contains(queriedFromList, x => x.Id == board.Id && x.Name == "Renamed");
+    }
+
+    [Fact]
+    public async Task Property_28_ArchiveSoftDeletesBoardColumnsAndCardsAndExcludesThemFromNormalQueries()
+    {
+        var fixture = CreateFixture();
+        var ownerId = Guid.NewGuid();
+        var project = await fixture.ProjectService.CreateAsync(ownerId, "Board archive property project", ProjectType.Team);
+        var now = DateTime.UtcNow;
+
+        var board = new Board
+        {
+            Id = Guid.NewGuid(),
+            ProjectId = project.Id,
+            Name = "Archive board",
+            Position = 1,
+            CreatedAt = now,
+            UpdatedAt = now
+        };
+
+        var column = new Column
+        {
+            Id = Guid.NewGuid(),
+            BoardId = board.Id,
+            Name = "Archive column",
+            Position = 1,
+            CreatedAt = now,
+            UpdatedAt = now
+        };
+
+        var card = new Card
+        {
+            Id = Guid.NewGuid(),
+            ColumnId = column.Id,
+            Title = "Archive card",
+            Position = 1,
+            CreatedAt = now,
+            UpdatedAt = now
+        };
+
+        fixture.DbContext.Boards.Add(board);
+        fixture.DbContext.Columns.Add(column);
+        fixture.DbContext.Cards.Add(card);
+        await fixture.DbContext.SaveChangesAsync();
+
+        await fixture.BoardService.ArchiveAsync(board.Id, ownerId);
+
+        var archivedBoard = await fixture.DbContext.Boards
+            .IgnoreQueryFilters()
+            .SingleAsync(x => x.Id == board.Id);
+        var archivedColumn = await fixture.DbContext.Columns
+            .IgnoreQueryFilters()
+            .SingleAsync(x => x.Id == column.Id);
+        var archivedCard = await fixture.DbContext.Cards
+            .IgnoreQueryFilters()
+            .SingleAsync(x => x.Id == card.Id);
+
+        Assert.NotNull(archivedBoard.DeletedAt);
+        Assert.NotNull(archivedColumn.DeletedAt);
+        Assert.NotNull(archivedCard.DeletedAt);
+
+        Assert.False(await fixture.DbContext.Boards.AnyAsync(x => x.Id == board.Id));
+        Assert.False(await fixture.DbContext.Columns.AnyAsync(x => x.Id == column.Id));
+        Assert.False(await fixture.DbContext.Cards.AnyAsync(x => x.Id == card.Id));
+
+        await Assert.ThrowsAsync<KeyNotFoundException>(
+            () => fixture.BoardService.GetByIdAsync(board.Id, ownerId));
+
+        var boards = await fixture.BoardService.ListAsync(project.Id, ownerId);
+        Assert.DoesNotContain(boards, x => x.Id == board.Id);
+    }
+
+    [Fact]
     public async Task CreateAsync_AssociatesBoardWithProject_AndRequiresMemberPlus()
     {
         var fixture = CreateFixture();
