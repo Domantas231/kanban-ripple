@@ -90,6 +90,7 @@ builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<IProjectService, ProjectService>();
 builder.Services.AddScoped<IInvitationService, InvitationService>();
+builder.Services.AddHostedService<InvitationCleanupService>();
 builder.Services.AddSingleton<IAccessTokenBlocklist, MemoryAccessTokenBlocklist>();
 
 var app = builder.Build();
