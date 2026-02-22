@@ -90,6 +90,29 @@ public sealed class ProjectService : IProjectService
         return new PaginatedResponse<Project>(items, effectivePage, effectivePageSize, totalCount);
     }
 
+    public async Task<PaginatedResponse<Project>> ListArchivedAsync(Guid userId, int page, int pageSize)
+    {
+        var effectivePage = page < 1 ? 1 : page;
+        var effectivePageSize = pageSize <= 0
+            ? DefaultPageSize
+            : Math.Min(pageSize, MaxPageSize);
+
+        var query = _dbContext.Projects
+            .IgnoreQueryFilters()
+            .Where(project => project.DeletedAt != null)
+            .Where(project => project.Members.Any(member => member.UserId == userId))
+            .OrderByDescending(project => project.UpdatedAt)
+            .ThenBy(project => project.Id);
+
+        var totalCount = await query.CountAsync();
+        var items = await query
+            .Skip((effectivePage - 1) * effectivePageSize)
+            .Take(effectivePageSize)
+            .ToListAsync();
+
+        return new PaginatedResponse<Project>(items, effectivePage, effectivePageSize, totalCount);
+    }
+
     public async Task<Project> UpdateAsync(Guid projectId, Guid userId, UpdateProjectDto data)
     {
         if (string.IsNullOrWhiteSpace(data.Name))
