@@ -103,7 +103,7 @@ public class ProjectServicePropertyTests
     }
 
     [Fact]
-    public async Task Property_21_UpgradeTypeRequiresOwnerRole()
+    public async Task UpgradeType_RequiresOwnerRole()
     {
         var fixture = CreateFixture();
         var ownerId = Guid.NewGuid();
@@ -122,6 +122,87 @@ public class ProjectServicePropertyTests
 
         await Assert.ThrowsAsync<UnauthorizedAccessException>(
             () => fixture.ProjectService.UpgradeTypeAsync(project.Id, moderatorId, ProjectType.Team));
+    }
+
+    [Fact]
+    public async Task Property_21_AfterMemberRemoval_ProjectAccessIsForbidden()
+    {
+        var fixture = CreateFixture();
+        var ownerId = Guid.NewGuid();
+        var removedUserId = Guid.NewGuid();
+
+        AddUser(fixture.DbContext, ownerId, "owner@example.com");
+        AddUser(fixture.DbContext, removedUserId, "removed@example.com");
+
+        var project = await fixture.ProjectService.CreateAsync(ownerId, "Access revoked", ProjectType.Team);
+        fixture.DbContext.ProjectMembers.Add(new ProjectMember
+        {
+            Id = Guid.NewGuid(),
+            ProjectId = project.Id,
+            UserId = removedUserId,
+            Role = ProjectRole.Member,
+            JoinedAt = DateTime.UtcNow
+        });
+        await fixture.DbContext.SaveChangesAsync();
+
+        var accessibleBeforeRemoval = await fixture.ProjectService.CheckAccessAsync(project.Id, removedUserId, ProjectRole.Viewer);
+        Assert.True(accessibleBeforeRemoval);
+
+        await fixture.ProjectService.RemoveMemberAsync(project.Id, ownerId, removedUserId);
+
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(
+            () => fixture.ProjectService.GetByIdAsync(project.Id, removedUserId));
+    }
+
+    [Fact]
+    public async Task Property_22_OwnerCanQueryMembersAndGetsCompleteMemberList()
+    {
+        var fixture = CreateFixture();
+        var ownerId = Guid.NewGuid();
+        var moderatorId = Guid.NewGuid();
+        var memberId = Guid.NewGuid();
+        var viewerId = Guid.NewGuid();
+
+        AddUser(fixture.DbContext, ownerId, "owner@example.com");
+        AddUser(fixture.DbContext, moderatorId, "moderator@example.com");
+        AddUser(fixture.DbContext, memberId, "member@example.com");
+        AddUser(fixture.DbContext, viewerId, "viewer@example.com");
+
+        var project = await fixture.ProjectService.CreateAsync(ownerId, "Complete members", ProjectType.Team);
+        fixture.DbContext.ProjectMembers.AddRange(
+            new ProjectMember
+            {
+                Id = Guid.NewGuid(),
+                ProjectId = project.Id,
+                UserId = moderatorId,
+                Role = ProjectRole.Moderator,
+                JoinedAt = DateTime.UtcNow
+            },
+            new ProjectMember
+            {
+                Id = Guid.NewGuid(),
+                ProjectId = project.Id,
+                UserId = memberId,
+                Role = ProjectRole.Member,
+                JoinedAt = DateTime.UtcNow
+            },
+            new ProjectMember
+            {
+                Id = Guid.NewGuid(),
+                ProjectId = project.Id,
+                UserId = viewerId,
+                Role = ProjectRole.Viewer,
+                JoinedAt = DateTime.UtcNow
+            });
+        await fixture.DbContext.SaveChangesAsync();
+
+        var members = await fixture.ProjectService.GetMembersAsync(project.Id, ownerId);
+
+        Assert.Equal(4, members.Count);
+        Assert.Contains(members, x => x.UserId == ownerId && x.Role == ProjectRole.Owner);
+        Assert.Contains(members, x => x.UserId == moderatorId && x.Role == ProjectRole.Moderator);
+        Assert.Contains(members, x => x.UserId == memberId && x.Role == ProjectRole.Member);
+        Assert.Contains(members, x => x.UserId == viewerId && x.Role == ProjectRole.Viewer);
     }
 
     [Fact]
@@ -257,7 +338,7 @@ public class ProjectServicePropertyTests
     }
 
     [Fact]
-    public async Task RemoveMemberAsync_RemovesMembershipAndPreservesHistoricalCreatorReference()
+    public async Task Property_23_AfterRemoval_CardStillRetainsCreatedByInformation()
     {
         var fixture = CreateFixture();
         var ownerId = Guid.NewGuid();
@@ -320,10 +401,99 @@ public class ProjectServicePropertyTests
         var membershipExists = await fixture.DbContext.ProjectMembers
             .AnyAsync(x => x.ProjectId == project.Id && x.UserId == removedUserId);
         var card = await fixture.DbContext.Cards
+            .Include(x => x.Creator)
             .SingleAsync(x => x.Id == cardId);
 
         Assert.False(membershipExists);
         Assert.Equal(removedUserId, card.CreatedBy);
+        Assert.NotNull(card.Creator);
+        Assert.Equal("removed@example.com", card.Creator!.Email);
+    }
+
+    [Fact]
+    public async Task TransferOwnershipAsync_TransfersOwnerRoleAndProjectOwnerId()
+    {
+        var fixture = CreateFixture();
+        var ownerId = Guid.NewGuid();
+        var newOwnerId = Guid.NewGuid();
+
+        AddUser(fixture.DbContext, ownerId, "owner@example.com");
+        AddUser(fixture.DbContext, newOwnerId, "new-owner@example.com");
+
+        var project = await fixture.ProjectService.CreateAsync(ownerId, "Ownership transfer", ProjectType.Team);
+        fixture.DbContext.ProjectMembers.Add(new ProjectMember
+        {
+            Id = Guid.NewGuid(),
+            ProjectId = project.Id,
+            UserId = newOwnerId,
+            Role = ProjectRole.Member,
+            JoinedAt = DateTime.UtcNow
+        });
+        await fixture.DbContext.SaveChangesAsync();
+
+        await fixture.ProjectService.TransferOwnershipAsync(project.Id, ownerId, newOwnerId);
+
+        var persistedProject = await fixture.DbContext.Projects.SingleAsync(x => x.Id == project.Id);
+        var oldOwnerMembership = await fixture.DbContext.ProjectMembers
+            .SingleAsync(x => x.ProjectId == project.Id && x.UserId == ownerId);
+        var newOwnerMembership = await fixture.DbContext.ProjectMembers
+            .SingleAsync(x => x.ProjectId == project.Id && x.UserId == newOwnerId);
+
+        Assert.Equal(newOwnerId, persistedProject.OwnerId);
+        Assert.Equal(ProjectRole.Member, oldOwnerMembership.Role);
+        Assert.Equal(ProjectRole.Owner, newOwnerMembership.Role);
+    }
+
+    [Fact]
+    public async Task TransferOwnershipAsync_RequiresCurrentOwner()
+    {
+        var fixture = CreateFixture();
+        var ownerId = Guid.NewGuid();
+        var moderatorId = Guid.NewGuid();
+        var newOwnerId = Guid.NewGuid();
+
+        AddUser(fixture.DbContext, ownerId, "owner@example.com");
+        AddUser(fixture.DbContext, moderatorId, "moderator@example.com");
+        AddUser(fixture.DbContext, newOwnerId, "new-owner@example.com");
+
+        var project = await fixture.ProjectService.CreateAsync(ownerId, "Ownership guarded", ProjectType.Team);
+        fixture.DbContext.ProjectMembers.AddRange(
+            new ProjectMember
+            {
+                Id = Guid.NewGuid(),
+                ProjectId = project.Id,
+                UserId = moderatorId,
+                Role = ProjectRole.Moderator,
+                JoinedAt = DateTime.UtcNow
+            },
+            new ProjectMember
+            {
+                Id = Guid.NewGuid(),
+                ProjectId = project.Id,
+                UserId = newOwnerId,
+                Role = ProjectRole.Member,
+                JoinedAt = DateTime.UtcNow
+            });
+        await fixture.DbContext.SaveChangesAsync();
+
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(
+            () => fixture.ProjectService.TransferOwnershipAsync(project.Id, moderatorId, newOwnerId));
+    }
+
+    [Fact]
+    public async Task TransferOwnershipAsync_RequiresNewOwnerToBeProjectMember()
+    {
+        var fixture = CreateFixture();
+        var ownerId = Guid.NewGuid();
+        var outsiderId = Guid.NewGuid();
+
+        AddUser(fixture.DbContext, ownerId, "owner@example.com");
+        AddUser(fixture.DbContext, outsiderId, "outsider@example.com");
+
+        var project = await fixture.ProjectService.CreateAsync(ownerId, "Ownership member check", ProjectType.Team);
+
+        await Assert.ThrowsAsync<KeyNotFoundException>(
+            () => fixture.ProjectService.TransferOwnershipAsync(project.Id, ownerId, outsiderId));
     }
 
     private static void AddUser(ApplicationDbContext dbContext, Guid userId, string email)

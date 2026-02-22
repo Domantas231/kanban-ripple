@@ -252,6 +252,55 @@ public sealed class ProjectService : IProjectService
         await _dbContext.SaveChangesAsync();
     }
 
+    public async Task TransferOwnershipAsync(Guid projectId, Guid currentOwnerUserId, Guid newOwnerUserId)
+    {
+        if (currentOwnerUserId == newOwnerUserId)
+        {
+            throw new InvalidOperationException("New owner must be different from current owner.");
+        }
+
+        var project = await _dbContext.Projects
+            .FirstOrDefaultAsync(x => x.Id == projectId);
+
+        if (project is null)
+        {
+            throw new KeyNotFoundException("Project not found.");
+        }
+
+        var currentOwnerMembership = await _dbContext.ProjectMembers
+            .FirstOrDefaultAsync(x => x.ProjectId == projectId && x.UserId == currentOwnerUserId);
+
+        if (currentOwnerMembership is null || currentOwnerMembership.Role != ProjectRole.Owner || project.OwnerId != currentOwnerUserId)
+        {
+            throw new UnauthorizedAccessException("Forbidden.");
+        }
+
+        var newOwnerMembership = await _dbContext.ProjectMembers
+            .FirstOrDefaultAsync(x => x.ProjectId == projectId && x.UserId == newOwnerUserId);
+
+        if (newOwnerMembership is null)
+        {
+            throw new KeyNotFoundException("Project member not found.");
+        }
+
+        await using var transaction = _dbContext.Database.IsRelational()
+            ? await _dbContext.Database.BeginTransactionAsync()
+            : null;
+
+        var now = DateTime.UtcNow;
+        newOwnerMembership.Role = ProjectRole.Owner;
+        currentOwnerMembership.Role = ProjectRole.Member;
+        project.OwnerId = newOwnerUserId;
+        project.UpdatedAt = now;
+
+        await _dbContext.SaveChangesAsync();
+
+        if (transaction is not null)
+        {
+            await transaction.CommitAsync();
+        }
+    }
+
     public async Task ArchiveAsync(Guid projectId, Guid userId)
     {
         var project = await _dbContext.Projects
