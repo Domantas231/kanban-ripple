@@ -135,7 +135,6 @@ public sealed class ProjectService : IProjectService
         }
 
         project.Name = data.Name.Trim();
-        project.Type = data.Type;
         project.UpdatedAt = DateTime.UtcNow;
 
         await _dbContext.SaveChangesAsync();

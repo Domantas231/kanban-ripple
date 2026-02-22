@@ -22,10 +22,6 @@ public sealed class UpdateProjectRequestValidator : AbstractValidator<UpdateProj
     {
         RuleFor(x => x.Name)
             .NotEmpty();
-
-        RuleFor(x => x.Type)
-            .NotNull()
-            .IsInEnum();
     }
 }
 

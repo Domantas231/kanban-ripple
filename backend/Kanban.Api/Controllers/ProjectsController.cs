@@ -88,7 +88,7 @@ public sealed class ProjectsController : ControllerBase
 
         try
         {
-            var result = await _projectService.UpdateAsync(id, userId, new UpdateProjectDto(request.Name, request.Type!.Value));
+            var result = await _projectService.UpdateAsync(id, userId, new UpdateProjectDto(request.Name));
             return Ok(result);
         }
         catch (KeyNotFoundException ex)

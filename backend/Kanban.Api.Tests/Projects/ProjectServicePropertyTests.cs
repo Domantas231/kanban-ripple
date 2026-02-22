@@ -68,6 +68,21 @@ public class ProjectServicePropertyTests
         Assert.NotEqual(Guid.Empty, second.Id);
     }
 
+    [Fact]
+    public async Task UpdateAsync_ChangesNameButNotType()
+    {
+        var fixture = CreateFixture();
+        var ownerId = Guid.NewGuid();
+        var project = await fixture.ProjectService.CreateAsync(ownerId, "Original", ProjectType.Simple);
+
+        var updated = await fixture.ProjectService.UpdateAsync(project.Id, ownerId, new UpdateProjectDto("Renamed"));
+        var persisted = await fixture.DbContext.Projects.SingleAsync(x => x.Id == project.Id);
+
+        Assert.Equal("Renamed", updated.Name);
+        Assert.Equal(ProjectType.Simple, updated.Type);
+        Assert.Equal(ProjectType.Simple, persisted.Type);
+    }
+
     [Theory]
     [InlineData(ProjectType.Simple, ProjectType.Team)]
     [InlineData(ProjectType.Simple, ProjectType.Full)]

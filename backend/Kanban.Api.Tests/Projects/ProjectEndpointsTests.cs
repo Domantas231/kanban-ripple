@@ -113,6 +113,36 @@ public sealed class ProjectEndpointsTests : IClassFixture<ProjectsApiFactory>
     }
 
     [Fact]
+    public async Task Owner_UpdateProject_IgnoresTypeChange()
+    {
+        var ownerUserId = await _factory.CreateUserAsync(UniqueEmail("update-owner"));
+        using var ownerClient = CreateClient(ownerUserId);
+
+        var create = await ownerClient.PostAsJsonAsync("/api/projects", new
+        {
+            name = "Update Type Guard",
+            type = ProjectType.Simple
+        });
+        create.EnsureSuccessStatusCode();
+
+        var project = await create.Content.ReadFromJsonAsync<Project>();
+        Assert.NotNull(project);
+        Assert.Equal(ProjectType.Simple, project!.Type);
+
+        var update = await ownerClient.PutAsJsonAsync($"/api/projects/{project.Id}", new
+        {
+            name = "Renamed",
+            type = ProjectType.Full
+        });
+        update.EnsureSuccessStatusCode();
+
+        var updated = await update.Content.ReadFromJsonAsync<Project>();
+        Assert.NotNull(updated);
+        Assert.Equal("Renamed", updated!.Name);
+        Assert.Equal(ProjectType.Simple, updated.Type);
+    }
+
+    [Fact]
     public async Task Member_ChangeRoles_ReturnsForbidden()
     {
         var ownerUserId = await _factory.CreateUserAsync(UniqueEmail("roles-owner"));

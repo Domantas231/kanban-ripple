@@ -4,7 +4,7 @@ namespace Kanban.Api.Services.Projects;
 
 public sealed record CreateProjectRequest(string Name, ProjectType? Type);
 
-public sealed record UpdateProjectRequest(string Name, ProjectType? Type);
+public sealed record UpdateProjectRequest(string Name);
 
 public sealed record UpgradeProjectTypeRequest(ProjectType? Type);
 
@@ -12,7 +12,7 @@ public sealed record UpdateMemberRoleRequest(ProjectRole? Role);
 
 public sealed record TransferOwnershipRequest(Guid NewOwnerUserId);
 
-public sealed record UpdateProjectDto(string Name, ProjectType Type);
+public sealed record UpdateProjectDto(string Name);
 
 public sealed record ProjectMemberDto(
     Guid UserId,
