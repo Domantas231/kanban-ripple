@@ -12,6 +12,7 @@ using Kanban.Api.Middleware;
 using Kanban.Api.Models;
 using Kanban.Api.Services.Auth;
 using Kanban.Api.Services.Email;
+using Kanban.Api.Services.Invitations;
 using Kanban.Api.Services.Projects;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -88,6 +89,7 @@ builder.Services.AddScoped<IEmailService, ConsoleEmailService>();
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<IProjectService, ProjectService>();
+builder.Services.AddScoped<IInvitationService, InvitationService>();
 builder.Services.AddSingleton<IAccessTokenBlocklist, MemoryAccessTokenBlocklist>();
 
 var app = builder.Build();
