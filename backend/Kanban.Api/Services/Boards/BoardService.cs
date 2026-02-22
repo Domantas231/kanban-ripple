@@ -96,6 +96,21 @@ public sealed class BoardService : IBoardService
             .ToListAsync();
     }
 
+    public async Task<IReadOnlyList<Board>> ListArchivedAsync(Guid userId)
+    {
+        return await _dbContext.Boards
+            .IgnoreQueryFilters()
+            .AsNoTracking()
+            .Where(x => x.DeletedAt != null)
+            .Where(x => _dbContext.ProjectMembers.Any(pm =>
+                pm.ProjectId == x.ProjectId
+                && pm.UserId == userId
+                && pm.Role <= ProjectRole.Viewer))
+            .OrderByDescending(x => x.DeletedAt)
+            .ThenBy(x => x.Id)
+            .ToListAsync();
+    }
+
     public async Task<Board> UpdateAsync(Guid boardId, Guid userId, UpdateBoardDto data)
     {
         if (string.IsNullOrWhiteSpace(data.Name))
