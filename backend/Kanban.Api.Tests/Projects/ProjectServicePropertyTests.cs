@@ -492,7 +492,7 @@ public class ProjectServicePropertyTests
 
         var project = await fixture.ProjectService.CreateAsync(ownerId, "Ownership member check", ProjectType.Team);
 
-        await Assert.ThrowsAsync<KeyNotFoundException>(
+        await Assert.ThrowsAsync<InvalidOperationException>(
             () => fixture.ProjectService.TransferOwnershipAsync(project.Id, ownerId, outsiderId));
     }
 

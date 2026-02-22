@@ -303,7 +303,7 @@ public sealed class ProjectService : IProjectService
 
         if (newOwnerMembership is null)
         {
-            throw new KeyNotFoundException("Project member not found.");
+            throw new InvalidOperationException("New owner must already be a project member.");
         }
 
         await using var transaction = _dbContext.Database.IsRelational()
