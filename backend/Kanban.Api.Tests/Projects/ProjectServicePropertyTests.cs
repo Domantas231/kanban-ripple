@@ -124,6 +124,222 @@ public class ProjectServicePropertyTests
             () => fixture.ProjectService.UpgradeTypeAsync(project.Id, moderatorId, ProjectType.Team));
     }
 
+    [Fact]
+    public async Task GetMembersAsync_AllowsProjectMemberAndReturnsRoles()
+    {
+        var fixture = CreateFixture();
+        var ownerId = Guid.NewGuid();
+        var viewerId = Guid.NewGuid();
+
+        AddUser(fixture.DbContext, ownerId, "owner@example.com");
+        AddUser(fixture.DbContext, viewerId, "viewer@example.com");
+
+        var project = await fixture.ProjectService.CreateAsync(ownerId, "Members view", ProjectType.Team);
+
+        fixture.DbContext.ProjectMembers.Add(new ProjectMember
+        {
+            Id = Guid.NewGuid(),
+            ProjectId = project.Id,
+            UserId = viewerId,
+            Role = ProjectRole.Viewer,
+            JoinedAt = DateTime.UtcNow
+        });
+        await fixture.DbContext.SaveChangesAsync();
+
+        var members = await fixture.ProjectService.GetMembersAsync(project.Id, viewerId);
+
+        Assert.Equal(2, members.Count);
+        Assert.Contains(members, x => x.UserId == ownerId && x.Role == ProjectRole.Owner);
+        Assert.Contains(members, x => x.UserId == viewerId && x.Role == ProjectRole.Viewer);
+    }
+
+    [Fact]
+    public async Task UpdateMemberRoleAsync_RequiresOwnerOrModerator()
+    {
+        var fixture = CreateFixture();
+        var ownerId = Guid.NewGuid();
+        var memberId = Guid.NewGuid();
+        var targetId = Guid.NewGuid();
+
+        AddUser(fixture.DbContext, ownerId, "owner@example.com");
+        AddUser(fixture.DbContext, memberId, "member@example.com");
+        AddUser(fixture.DbContext, targetId, "target@example.com");
+
+        var project = await fixture.ProjectService.CreateAsync(ownerId, "Role update", ProjectType.Team);
+        fixture.DbContext.ProjectMembers.AddRange(
+            new ProjectMember
+            {
+                Id = Guid.NewGuid(),
+                ProjectId = project.Id,
+                UserId = memberId,
+                Role = ProjectRole.Member,
+                JoinedAt = DateTime.UtcNow
+            },
+            new ProjectMember
+            {
+                Id = Guid.NewGuid(),
+                ProjectId = project.Id,
+                UserId = targetId,
+                Role = ProjectRole.Viewer,
+                JoinedAt = DateTime.UtcNow
+            });
+        await fixture.DbContext.SaveChangesAsync();
+
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(
+            () => fixture.ProjectService.UpdateMemberRoleAsync(project.Id, memberId, targetId, ProjectRole.Member));
+    }
+
+    [Fact]
+    public async Task UpdateMemberRoleAsync_DisallowsSelfRoleChangeAndOwnerAssignment()
+    {
+        var fixture = CreateFixture();
+        var ownerId = Guid.NewGuid();
+        var targetId = Guid.NewGuid();
+
+        AddUser(fixture.DbContext, ownerId, "owner@example.com");
+        AddUser(fixture.DbContext, targetId, "target@example.com");
+
+        var project = await fixture.ProjectService.CreateAsync(ownerId, "Role guards", ProjectType.Team);
+        fixture.DbContext.ProjectMembers.Add(new ProjectMember
+        {
+            Id = Guid.NewGuid(),
+            ProjectId = project.Id,
+            UserId = targetId,
+            Role = ProjectRole.Viewer,
+            JoinedAt = DateTime.UtcNow
+        });
+        await fixture.DbContext.SaveChangesAsync();
+
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => fixture.ProjectService.UpdateMemberRoleAsync(project.Id, ownerId, ownerId, ProjectRole.Moderator));
+
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => fixture.ProjectService.UpdateMemberRoleAsync(project.Id, ownerId, targetId, ProjectRole.Owner));
+    }
+
+    [Fact]
+    public async Task RemoveMemberAsync_RequiresOwnerOrModeratorAndDisallowsSelfOrOwnerRemoval()
+    {
+        var fixture = CreateFixture();
+        var ownerId = Guid.NewGuid();
+        var moderatorId = Guid.NewGuid();
+        var memberId = Guid.NewGuid();
+
+        AddUser(fixture.DbContext, ownerId, "owner@example.com");
+        AddUser(fixture.DbContext, moderatorId, "moderator@example.com");
+        AddUser(fixture.DbContext, memberId, "member@example.com");
+
+        var project = await fixture.ProjectService.CreateAsync(ownerId, "Remove guards", ProjectType.Team);
+        fixture.DbContext.ProjectMembers.AddRange(
+            new ProjectMember
+            {
+                Id = Guid.NewGuid(),
+                ProjectId = project.Id,
+                UserId = moderatorId,
+                Role = ProjectRole.Moderator,
+                JoinedAt = DateTime.UtcNow
+            },
+            new ProjectMember
+            {
+                Id = Guid.NewGuid(),
+                ProjectId = project.Id,
+                UserId = memberId,
+                Role = ProjectRole.Member,
+                JoinedAt = DateTime.UtcNow
+            });
+        await fixture.DbContext.SaveChangesAsync();
+
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => fixture.ProjectService.RemoveMemberAsync(project.Id, ownerId, ownerId));
+
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => fixture.ProjectService.RemoveMemberAsync(project.Id, moderatorId, ownerId));
+    }
+
+    [Fact]
+    public async Task RemoveMemberAsync_RemovesMembershipAndPreservesHistoricalCreatorReference()
+    {
+        var fixture = CreateFixture();
+        var ownerId = Guid.NewGuid();
+        var removedUserId = Guid.NewGuid();
+
+        AddUser(fixture.DbContext, ownerId, "owner@example.com");
+        AddUser(fixture.DbContext, removedUserId, "removed@example.com");
+
+        var project = await fixture.ProjectService.CreateAsync(ownerId, "History", ProjectType.Team);
+
+        fixture.DbContext.ProjectMembers.Add(new ProjectMember
+        {
+            Id = Guid.NewGuid(),
+            ProjectId = project.Id,
+            UserId = removedUserId,
+            Role = ProjectRole.Member,
+            JoinedAt = DateTime.UtcNow
+        });
+
+        var boardId = Guid.NewGuid();
+        var columnId = Guid.NewGuid();
+        var cardId = Guid.NewGuid();
+        var now = DateTime.UtcNow;
+
+        fixture.DbContext.Boards.Add(new Board
+        {
+            Id = boardId,
+            ProjectId = project.Id,
+            Name = "Board",
+            Position = 1,
+            CreatedAt = now,
+            UpdatedAt = now
+        });
+
+        fixture.DbContext.Columns.Add(new Column
+        {
+            Id = columnId,
+            BoardId = boardId,
+            Name = "Column",
+            Position = 1,
+            CreatedAt = now,
+            UpdatedAt = now
+        });
+
+        fixture.DbContext.Cards.Add(new Card
+        {
+            Id = cardId,
+            ColumnId = columnId,
+            Title = "Created by soon-removed member",
+            Position = 1,
+            CreatedAt = now,
+            UpdatedAt = now,
+            CreatedBy = removedUserId
+        });
+
+        await fixture.DbContext.SaveChangesAsync();
+
+        await fixture.ProjectService.RemoveMemberAsync(project.Id, ownerId, removedUserId);
+
+        var membershipExists = await fixture.DbContext.ProjectMembers
+            .AnyAsync(x => x.ProjectId == project.Id && x.UserId == removedUserId);
+        var card = await fixture.DbContext.Cards
+            .SingleAsync(x => x.Id == cardId);
+
+        Assert.False(membershipExists);
+        Assert.Equal(removedUserId, card.CreatedBy);
+    }
+
+    private static void AddUser(ApplicationDbContext dbContext, Guid userId, string email)
+    {
+        dbContext.Users.Add(new ApplicationUser
+        {
+            Id = userId,
+            Email = email,
+            UserName = email,
+            NormalizedEmail = email.ToUpperInvariant(),
+            NormalizedUserName = email.ToUpperInvariant(),
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow
+        });
+    }
+
     private static TestFixture CreateFixture()
     {
         var options = new DbContextOptionsBuilder<ApplicationDbContext>()

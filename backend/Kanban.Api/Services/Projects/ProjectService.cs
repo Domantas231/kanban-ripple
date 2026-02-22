@@ -147,6 +147,111 @@ public sealed class ProjectService : IProjectService
         return project;
     }
 
+    public async Task<IReadOnlyList<ProjectMemberDto>> GetMembersAsync(Guid projectId, Guid userId)
+    {
+        var hasAccess = await CheckAccessAsync(projectId, userId, ProjectRole.Viewer);
+        if (!hasAccess)
+        {
+            throw new UnauthorizedAccessException("Forbidden.");
+        }
+
+        return await _dbContext.ProjectMembers
+            .Where(x => x.ProjectId == projectId)
+            .Include(x => x.User)
+            .OrderBy(x => x.Role)
+            .ThenBy(x => x.JoinedAt)
+            .Select(x => new ProjectMemberDto(
+                x.UserId,
+                x.User != null ? (x.User.Email ?? string.Empty) : string.Empty,
+                x.Role,
+                x.JoinedAt))
+            .ToListAsync();
+    }
+
+    public async Task<ProjectMember> UpdateMemberRoleAsync(Guid projectId, Guid actorUserId, Guid targetUserId, ProjectRole newRole)
+    {
+        if (actorUserId == targetUserId)
+        {
+            throw new InvalidOperationException("You cannot change your own role.");
+        }
+
+        if (newRole == ProjectRole.Owner)
+        {
+            throw new InvalidOperationException("Cannot set member role to owner. Use ownership transfer.");
+        }
+
+        var actorMembership = await _dbContext.ProjectMembers
+            .FirstOrDefaultAsync(x => x.ProjectId == projectId && x.UserId == actorUserId);
+
+        if (actorMembership is null || !HasRequiredRole(actorMembership.Role, ProjectRole.Moderator))
+        {
+            throw new UnauthorizedAccessException("Forbidden.");
+        }
+
+        var targetMembership = await _dbContext.ProjectMembers
+            .FirstOrDefaultAsync(x => x.ProjectId == projectId && x.UserId == targetUserId);
+
+        if (targetMembership is null)
+        {
+            throw new KeyNotFoundException("Project member not found.");
+        }
+
+        if (targetMembership.Role == ProjectRole.Owner)
+        {
+            throw new InvalidOperationException("Owner role cannot be changed. Use ownership transfer.");
+        }
+
+        targetMembership.Role = newRole;
+
+        var project = await _dbContext.Projects.FirstOrDefaultAsync(x => x.Id == projectId);
+        if (project is not null)
+        {
+            project.UpdatedAt = DateTime.UtcNow;
+        }
+
+        await _dbContext.SaveChangesAsync();
+        return targetMembership;
+    }
+
+    public async Task RemoveMemberAsync(Guid projectId, Guid actorUserId, Guid targetUserId)
+    {
+        if (actorUserId == targetUserId)
+        {
+            throw new InvalidOperationException("You cannot remove yourself from the project.");
+        }
+
+        var actorMembership = await _dbContext.ProjectMembers
+            .FirstOrDefaultAsync(x => x.ProjectId == projectId && x.UserId == actorUserId);
+
+        if (actorMembership is null || !HasRequiredRole(actorMembership.Role, ProjectRole.Moderator))
+        {
+            throw new UnauthorizedAccessException("Forbidden.");
+        }
+
+        var targetMembership = await _dbContext.ProjectMembers
+            .FirstOrDefaultAsync(x => x.ProjectId == projectId && x.UserId == targetUserId);
+
+        if (targetMembership is null)
+        {
+            throw new KeyNotFoundException("Project member not found.");
+        }
+
+        if (targetMembership.Role == ProjectRole.Owner)
+        {
+            throw new InvalidOperationException("Owner cannot be removed. Transfer ownership first.");
+        }
+
+        _dbContext.ProjectMembers.Remove(targetMembership);
+
+        var project = await _dbContext.Projects.FirstOrDefaultAsync(x => x.Id == projectId);
+        if (project is not null)
+        {
+            project.UpdatedAt = DateTime.UtcNow;
+        }
+
+        await _dbContext.SaveChangesAsync();
+    }
+
     public async Task ArchiveAsync(Guid projectId, Guid userId)
     {
         var project = await _dbContext.Projects
