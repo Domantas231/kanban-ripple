@@ -13,6 +13,7 @@ public interface IProjectService
     Task<ProjectMember> UpdateMemberRoleAsync(Guid projectId, Guid actorUserId, Guid targetUserId, ProjectRole newRole);
     Task RemoveMemberAsync(Guid projectId, Guid actorUserId, Guid targetUserId);
     Task TransferOwnershipAsync(Guid projectId, Guid currentOwnerUserId, Guid newOwnerUserId);
+    Task<SwimlaneView> GetSwimlaneViewAsync(Guid projectId, Guid userId);
     Task ArchiveAsync(Guid projectId, Guid userId);
     Task RestoreAsync(Guid projectId, Guid userId);
     Task<bool> CheckAccessAsync(Guid projectId, Guid userId, ProjectRole minimumRole);

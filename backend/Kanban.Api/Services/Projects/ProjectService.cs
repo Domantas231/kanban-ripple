@@ -301,6 +301,53 @@ public sealed class ProjectService : IProjectService
         }
     }
 
+    public async Task<SwimlaneView> GetSwimlaneViewAsync(Guid projectId, Guid userId)
+    {
+        var projectExists = await _dbContext.Projects
+            .AnyAsync(x => x.Id == projectId);
+
+        if (!projectExists)
+        {
+            throw new KeyNotFoundException("Project not found.");
+        }
+
+        var hasAccess = await CheckAccessAsync(projectId, userId, ProjectRole.Viewer);
+        if (!hasAccess)
+        {
+            throw new UnauthorizedAccessException("Forbidden.");
+        }
+
+        var boards = await _dbContext.Boards
+            .AsNoTracking()
+            .Where(board => board.ProjectId == projectId)
+            .OrderBy(board => board.Position)
+            .ThenBy(board => board.Id)
+            .Select(board => new BoardSwimlane
+            {
+                Board = board,
+                Columns = board.Columns
+                    .OrderBy(column => column.Position)
+                    .ThenBy(column => column.Id)
+                    .Select(column => new ColumnSwimlane
+                    {
+                        Column = column,
+                        Cards = column.Cards
+                            .OrderBy(card => card.Position)
+                            .ThenBy(card => card.Id)
+                            .ToList(),
+                        CardCount = column.Cards.Count()
+                    })
+                    .ToList()
+            })
+            .ToListAsync();
+
+        return new SwimlaneView
+        {
+            ProjectId = projectId,
+            Boards = boards
+        };
+    }
+
     public async Task ArchiveAsync(Guid projectId, Guid userId)
     {
         var project = await _dbContext.Projects

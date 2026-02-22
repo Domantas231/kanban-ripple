@@ -15,3 +15,22 @@ public sealed record PaginatedResponse<T>(
     int Page,
     int PageSize,
     int TotalCount);
+
+public sealed class SwimlaneView
+{
+    public Guid ProjectId { get; set; }
+    public List<BoardSwimlane> Boards { get; set; } = new();
+}
+
+public sealed class BoardSwimlane
+{
+    public Board Board { get; set; } = null!;
+    public List<ColumnSwimlane> Columns { get; set; } = new();
+}
+
+public sealed class ColumnSwimlane
+{
+    public Column Column { get; set; } = null!;
+    public List<Card> Cards { get; set; } = new();
+    public int CardCount { get; set; }
+}
