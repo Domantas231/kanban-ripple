@@ -119,6 +119,34 @@ public sealed class ProjectService : IProjectService
         return project;
     }
 
+    public async Task<Project> UpgradeTypeAsync(Guid projectId, Guid userId, ProjectType newType)
+    {
+        var project = await _dbContext.Projects
+            .FirstOrDefaultAsync(x => x.Id == projectId);
+
+        if (project is null)
+        {
+            throw new KeyNotFoundException("Project not found.");
+        }
+
+        var hasAccess = await CheckAccessAsync(projectId, userId, ProjectRole.Owner);
+        if (!hasAccess)
+        {
+            throw new UnauthorizedAccessException("Forbidden.");
+        }
+
+        if (newType <= project.Type)
+        {
+            throw new InvalidOperationException($"Invalid project type transition: {project.Type} -> {newType}.");
+        }
+
+        project.Type = newType;
+        project.UpdatedAt = DateTime.UtcNow;
+
+        await _dbContext.SaveChangesAsync();
+        return project;
+    }
+
     public async Task ArchiveAsync(Guid projectId, Guid userId)
     {
         var project = await _dbContext.Projects
