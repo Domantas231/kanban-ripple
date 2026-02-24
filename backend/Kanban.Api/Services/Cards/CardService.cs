@@ -12,6 +12,8 @@ public sealed class CardService : ICardService
     private const int PositionGap = 1000;
     private const int DefaultBoardCardsPageSize = 50;
     private const int MaxBoardCardsPageSize = 50;
+    private const int DefaultSearchCardsPageSize = 25;
+    private const int MaxSearchCardsPageSize = 25;
     private const int DefaultArchivedCardsPageSize = 25;
     private const int MaxArchivedCardsPageSize = 25;
 
@@ -59,6 +61,55 @@ public sealed class CardService : ICardService
         var items = await query
             .OrderBy(x => x.Column.Position)
             .ThenBy(x => x.Position)
+            .ThenBy(x => x.Id)
+            .Skip((effectivePage - 1) * effectivePageSize)
+            .Take(effectivePageSize)
+            .ToListAsync();
+
+        return new PaginatedResponse<Card>(items, effectivePage, effectivePageSize, totalCount);
+    }
+
+    public async Task<PaginatedResponse<Card>> SearchAsync(Guid projectId, Guid userId, string query, int page, int pageSize)
+    {
+        var projectExists = await _dbContext.Projects
+            .AsNoTracking()
+            .AnyAsync(x => x.Id == projectId);
+
+        if (!projectExists)
+        {
+            throw new KeyNotFoundException("Project not found.");
+        }
+
+        var hasAccess = await CheckProjectAccessAsync(projectId, userId, ProjectRole.Viewer);
+        if (!hasAccess)
+        {
+            throw new UnauthorizedAccessException("Forbidden.");
+        }
+
+        var effectivePage = page < 1 ? 1 : page;
+        var effectivePageSize = pageSize <= 0
+            ? DefaultSearchCardsPageSize
+            : Math.Min(pageSize, MaxSearchCardsPageSize);
+
+        if (string.IsNullOrWhiteSpace(query))
+        {
+            return new PaginatedResponse<Card>(Array.Empty<Card>(), effectivePage, effectivePageSize, 0);
+        }
+
+        var normalizedQuery = query.Trim();
+
+        var wildcardQuery = $"%{normalizedQuery}%";
+
+        var searchQuery = _dbContext.Cards
+            .AsNoTracking()
+            .Where(x => x.Column.Board.ProjectId == projectId)
+            .Where(x => EF.Functions.ILike(x.Title, wildcardQuery)
+                || EF.Functions.ILike(x.Description ?? string.Empty, wildcardQuery));
+
+        var totalCount = await searchQuery.CountAsync();
+
+        var items = await searchQuery
+            .OrderByDescending(x => x.UpdatedAt)
             .ThenBy(x => x.Id)
             .Skip((effectivePage - 1) * effectivePageSize)
             .Take(effectivePageSize)
