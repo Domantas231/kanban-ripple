@@ -3,6 +3,7 @@ using Kanban.Api.Models;
 using Kanban.Api.Services.Boards;
 using Kanban.Api.Services.Cards;
 using Kanban.Api.Services.Columns;
+using Kanban.Api.Services.Notifications;
 using Kanban.Api.Services.Projects;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
@@ -167,7 +168,8 @@ public sealed class CardSearchPropertyTests
             var projectService = new ProjectService(dbContext);
             var boardService = new BoardService(dbContext);
             var columnService = new ColumnService(dbContext);
-            var cardService = new CardService(dbContext);
+            var notificationService = new NotificationService(dbContext);
+            var cardService = new CardService(dbContext, notificationService);
 
             return new PostgresSearchFixture(
                 adminConnectionString,

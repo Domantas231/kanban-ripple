@@ -3,6 +3,7 @@ using Kanban.Api.Models;
 using Kanban.Api.Services.Boards;
 using Kanban.Api.Services.Cards;
 using Kanban.Api.Services.Columns;
+using Kanban.Api.Services.Notifications;
 using Kanban.Api.Services.Projects;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
@@ -197,6 +198,76 @@ public class CardServicePropertyTests
         Assert.Contains(withManyAssignments.Assignments, x => x.UserId == ownerId);
         Assert.Contains(withManyAssignments.Assignments, x => x.UserId == user1Id);
         Assert.Contains(withManyAssignments.Assignments, x => x.UserId == user2Id);
+    }
+
+    [Fact]
+    public async Task Property_63_AssigningUserCreatesNotificationAndSelfAssignmentDoesNot()
+    {
+        var fixture = CreateFixture();
+        var ownerId = Guid.NewGuid();
+        var assigneeId = Guid.NewGuid();
+
+        fixture.DbContext.Users.AddRange(
+            new ApplicationUser
+            {
+                Id = ownerId,
+                Email = "owner-notify@example.test",
+                UserName = "owner-notify@example.test",
+                NormalizedEmail = "OWNER-NOTIFY@EXAMPLE.TEST",
+                NormalizedUserName = "OWNER-NOTIFY@EXAMPLE.TEST",
+                SecurityStamp = Guid.NewGuid().ToString("N"),
+                CreatedAt = DateTime.UtcNow,
+                UpdatedAt = DateTime.UtcNow
+            },
+            new ApplicationUser
+            {
+                Id = assigneeId,
+                Email = "assignee-notify@example.test",
+                UserName = "assignee-notify@example.test",
+                NormalizedEmail = "ASSIGNEE-NOTIFY@EXAMPLE.TEST",
+                NormalizedUserName = "ASSIGNEE-NOTIFY@EXAMPLE.TEST",
+                SecurityStamp = Guid.NewGuid().ToString("N"),
+                CreatedAt = DateTime.UtcNow,
+                UpdatedAt = DateTime.UtcNow
+            });
+        await fixture.DbContext.SaveChangesAsync();
+
+        var project = await fixture.ProjectService.CreateAsync(ownerId, "Card notification assignment project", ProjectType.Team);
+        var board = await fixture.BoardService.CreateAsync(project.Id, ownerId, "Main board");
+        var column = await fixture.ColumnService.CreateAsync(board.Id, ownerId, "Todo");
+        var card = await fixture.CardService.CreateAsync(column.Id, ownerId, new CreateCardDto("Notify card", "desc", null));
+
+        fixture.DbContext.ProjectMembers.Add(new ProjectMember
+        {
+            Id = Guid.NewGuid(),
+            ProjectId = project.Id,
+            UserId = assigneeId,
+            Role = ProjectRole.Member,
+            JoinedAt = DateTime.UtcNow
+        });
+        await fixture.DbContext.SaveChangesAsync();
+
+        await fixture.CardService.AssignUserAsync(card.Id, assigneeId, ownerId);
+        await fixture.CardService.AssignUserAsync(card.Id, ownerId, ownerId);
+
+        var assigneeNotifications = await fixture.DbContext.Notifications
+            .AsNoTracking()
+            .Where(x => x.UserId == assigneeId)
+            .ToListAsync();
+        var ownerNotifications = await fixture.DbContext.Notifications
+            .AsNoTracking()
+            .Where(x => x.UserId == ownerId)
+            .ToListAsync();
+
+        var notification = Assert.Single(assigneeNotifications);
+        Assert.Equal(NotificationType.CardAssigned, notification.Type);
+        Assert.Equal(card.Id, notification.EntityId);
+        Assert.Equal("card", notification.EntityType);
+        Assert.Equal(ownerId, notification.CreatedBy);
+        Assert.Contains(card.Title, notification.Title);
+        Assert.Contains("owner-notify@example.test", notification.Message);
+        Assert.Contains(card.Title, notification.Message);
+        Assert.Empty(ownerNotifications);
     }
 
     [Fact]
@@ -453,7 +524,8 @@ public class CardServicePropertyTests
         var projectService = new ProjectService(dbContext);
         var boardService = new BoardService(dbContext);
         var columnService = new ColumnService(dbContext);
-        var cardService = new CardService(dbContext);
+        var notificationService = new NotificationService(dbContext);
+        var cardService = new CardService(dbContext, notificationService);
 
         Assert.True(dbContext.Database.IsRelational());
 
@@ -1108,7 +1180,8 @@ public class CardServicePropertyTests
         var projectService = new ProjectService(dbContext);
         var boardService = new BoardService(dbContext);
         var columnService = new ColumnService(dbContext);
-        var cardService = new CardService(dbContext);
+        var notificationService = new NotificationService(dbContext);
+        var cardService = new CardService(dbContext, notificationService);
 
         return new TestFixture(projectService, boardService, columnService, cardService, dbContext);
     }

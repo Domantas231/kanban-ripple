@@ -2,6 +2,7 @@ using System.Data;
 using Kanban.Api.Data;
 using Kanban.Api.Models;
 using Kanban.Api.Services;
+using Kanban.Api.Services.Notifications;
 using Kanban.Api.Services.Projects;
 using Microsoft.EntityFrameworkCore;
 
@@ -18,10 +19,12 @@ public sealed class CardService : ICardService
     private const int MaxArchivedCardsPageSize = 25;
 
     private readonly ApplicationDbContext _dbContext;
+    private readonly INotificationService _notificationService;
 
-    public CardService(ApplicationDbContext dbContext)
+    public CardService(ApplicationDbContext dbContext, INotificationService notificationService)
     {
         _dbContext = dbContext;
+        _notificationService = notificationService;
     }
 
     public async Task<PaginatedResponse<Card>> ListByBoardAsync(Guid boardId, Guid userId, int page, int pageSize)
@@ -98,15 +101,29 @@ public sealed class CardService : ICardService
 
         var normalizedQuery = query.Trim();
 
-        var wildcardQuery = $"%{normalizedQuery}%";
-
-        var searchQuery = _dbContext.Cards
+        var baseQuery = _dbContext.Cards
             .AsNoTracking()
             .Include(x => x.Column)
                 .ThenInclude(x => x.Board)
-            .Where(x => x.Column.Board.ProjectId == projectId)
-            .Where(x => EF.Functions.ILike(x.Title, wildcardQuery)
+            .Where(x => x.Column.Board.ProjectId == projectId);
+
+        IQueryable<Card> searchQuery;
+        var providerName = _dbContext.Database.ProviderName;
+        var isNpgsql = !string.IsNullOrWhiteSpace(providerName)
+            && providerName.Contains("Npgsql", StringComparison.OrdinalIgnoreCase);
+
+        if (isNpgsql)
+        {
+            var wildcardQuery = $"%{normalizedQuery}%";
+            searchQuery = baseQuery.Where(x => EF.Functions.ILike(x.Title, wildcardQuery)
                 || EF.Functions.ILike(x.Description ?? string.Empty, wildcardQuery));
+        }
+        else
+        {
+            var normalizedLower = normalizedQuery.ToLower();
+            searchQuery = baseQuery.Where(x => (x.Title ?? string.Empty).ToLower().Contains(normalizedLower)
+                || (x.Description ?? string.Empty).ToLower().Contains(normalizedLower));
+        }
 
         var totalCount = await searchQuery.CountAsync();
 
@@ -534,6 +551,30 @@ public sealed class CardService : ICardService
 
         card.UpdatedAt = DateTime.UtcNow;
         await _dbContext.SaveChangesAsync();
+
+        if (assigneeUserId == userId)
+        {
+            return;
+        }
+
+        var assignerDisplay = await _dbContext.Users
+            .AsNoTracking()
+            .Where(x => x.Id == userId)
+            .Select(x => x.Email ?? x.UserName)
+            .FirstOrDefaultAsync();
+
+        var assignerLabel = string.IsNullOrWhiteSpace(assignerDisplay)
+            ? "A user"
+            : assignerDisplay;
+
+        await _notificationService.CreateAsync(
+            assigneeUserId,
+            NotificationType.CardAssigned,
+            $"Assigned: {card.Title}",
+            $"{assignerLabel} assigned you to card '{card.Title}'.",
+            entityType: "card",
+            entityId: card.Id,
+            createdBy: userId);
     }
 
     public async Task UnassignUserAsync(Guid cardId, Guid assigneeUserId, Guid userId)
