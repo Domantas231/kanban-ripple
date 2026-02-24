@@ -19,6 +19,7 @@ using Kanban.Api.Services.Projects;
 using Kanban.Api.Services.Cards;
 using Kanban.Api.Services.Tags;
 using Kanban.Api.Services.Notifications;
+using Kanban.Api.Services.Subscriptions;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -99,6 +100,7 @@ builder.Services.AddScoped<IColumnService, ColumnService>();
 builder.Services.AddScoped<ICardService, CardService>();
 builder.Services.AddScoped<ITagService, TagService>();
 builder.Services.AddScoped<INotificationService, NotificationService>();
+builder.Services.AddScoped<ISubscriptionService, SubscriptionService>();
 builder.Services.AddScoped<IInvitationService, InvitationService>();
 builder.Services.AddHostedService<InvitationCleanupService>();
 builder.Services.AddSingleton<IAccessTokenBlocklist, MemoryAccessTokenBlocklist>();
