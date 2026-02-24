@@ -1,5 +1,6 @@
 using Kanban.Api.Data;
 using Kanban.Api.Models;
+using Kanban.Api.Services;
 using Microsoft.EntityFrameworkCore;
 
 namespace Kanban.Api.Services.Tags;
@@ -38,7 +39,7 @@ public sealed class TagService : ITagService
 
         if (duplicateExists)
         {
-            throw new InvalidOperationException("Tag name must be unique within the project.");
+            throw new ConflictException("Tag name must be unique within the project.");
         }
 
         var tag = new Tag
@@ -132,7 +133,7 @@ public sealed class TagService : ITagService
 
             if (duplicateExists)
             {
-                throw new InvalidOperationException("Tag name must be unique within the project.");
+                throw new ConflictException("Tag name must be unique within the project.");
             }
 
             tag.Name = normalizedName;
