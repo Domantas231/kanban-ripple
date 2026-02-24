@@ -52,6 +52,191 @@ public class CardServicePropertyTests
     }
 
     [Fact]
+    public async Task Property_35_TagAssignmentSupportsZeroOneAndManyTags()
+    {
+        var fixture = CreateFixture();
+        var ownerId = Guid.NewGuid();
+        var project = await fixture.ProjectService.CreateAsync(ownerId, "Card tag assignment project", ProjectType.Team);
+        var board = await fixture.BoardService.CreateAsync(project.Id, ownerId, "Main board");
+        var column = await fixture.ColumnService.CreateAsync(board.Id, ownerId, "Todo");
+
+        var card = await fixture.CardService.CreateAsync(
+            column.Id,
+            ownerId,
+            new CreateCardDto("Taggable card", "desc", null));
+
+        var tag1 = new Tag
+        {
+            Id = Guid.NewGuid(),
+            ProjectId = project.Id,
+            Name = "bug",
+            Color = "#ff0000",
+            CreatedAt = DateTime.UtcNow
+        };
+        var tag2 = new Tag
+        {
+            Id = Guid.NewGuid(),
+            ProjectId = project.Id,
+            Name = "feature",
+            Color = "#00ff00",
+            CreatedAt = DateTime.UtcNow
+        };
+        var tag3 = new Tag
+        {
+            Id = Guid.NewGuid(),
+            ProjectId = project.Id,
+            Name = "urgent",
+            Color = "#0000ff",
+            CreatedAt = DateTime.UtcNow
+        };
+
+        fixture.DbContext.Tags.AddRange(tag1, tag2, tag3);
+        await fixture.DbContext.SaveChangesAsync();
+
+        var withZeroTags = await fixture.CardService.GetByIdAsync(card.Id, ownerId);
+        Assert.Empty(withZeroTags.CardTags);
+
+        await fixture.CardService.AssignTagAsync(card.Id, tag1.Id, ownerId);
+        var withOneTag = await fixture.CardService.GetByIdAsync(card.Id, ownerId);
+        Assert.Single(withOneTag.CardTags);
+
+        await fixture.CardService.AssignTagAsync(card.Id, tag2.Id, ownerId);
+        await fixture.CardService.AssignTagAsync(card.Id, tag3.Id, ownerId);
+        var withManyTags = await fixture.CardService.GetByIdAsync(card.Id, ownerId);
+
+        Assert.Equal(3, withManyTags.CardTags.Count);
+        Assert.Contains(withManyTags.CardTags, x => x.TagId == tag1.Id);
+        Assert.Contains(withManyTags.CardTags, x => x.TagId == tag2.Id);
+        Assert.Contains(withManyTags.CardTags, x => x.TagId == tag3.Id);
+    }
+
+    [Fact]
+    public async Task Property_36_UserAssignmentSupportsZeroOneAndManyUsers()
+    {
+        var fixture = CreateFixture();
+        var ownerId = Guid.NewGuid();
+        var user1Id = Guid.NewGuid();
+        var user2Id = Guid.NewGuid();
+
+        fixture.DbContext.Users.AddRange(
+            new ApplicationUser
+            {
+                Id = ownerId,
+                Email = "owner@example.test",
+                UserName = "owner@example.test",
+                NormalizedEmail = "OWNER@EXAMPLE.TEST",
+                NormalizedUserName = "OWNER@EXAMPLE.TEST",
+                SecurityStamp = Guid.NewGuid().ToString("N"),
+                CreatedAt = DateTime.UtcNow,
+                UpdatedAt = DateTime.UtcNow
+            },
+            new ApplicationUser
+            {
+                Id = user1Id,
+                Email = "user1@example.test",
+                UserName = "user1@example.test",
+                NormalizedEmail = "USER1@EXAMPLE.TEST",
+                NormalizedUserName = "USER1@EXAMPLE.TEST",
+                SecurityStamp = Guid.NewGuid().ToString("N"),
+                CreatedAt = DateTime.UtcNow,
+                UpdatedAt = DateTime.UtcNow
+            },
+            new ApplicationUser
+            {
+                Id = user2Id,
+                Email = "user2@example.test",
+                UserName = "user2@example.test",
+                NormalizedEmail = "USER2@EXAMPLE.TEST",
+                NormalizedUserName = "USER2@EXAMPLE.TEST",
+                SecurityStamp = Guid.NewGuid().ToString("N"),
+                CreatedAt = DateTime.UtcNow,
+                UpdatedAt = DateTime.UtcNow
+            });
+        await fixture.DbContext.SaveChangesAsync();
+
+        var project = await fixture.ProjectService.CreateAsync(ownerId, "Card user assignment project", ProjectType.Team);
+        var board = await fixture.BoardService.CreateAsync(project.Id, ownerId, "Main board");
+        var column = await fixture.ColumnService.CreateAsync(board.Id, ownerId, "Todo");
+
+        var card = await fixture.CardService.CreateAsync(
+            column.Id,
+            ownerId,
+            new CreateCardDto("Assignable card", "desc", null));
+
+        fixture.DbContext.ProjectMembers.AddRange(
+            new ProjectMember
+            {
+                Id = Guid.NewGuid(),
+                ProjectId = project.Id,
+                UserId = user1Id,
+                Role = ProjectRole.Member,
+                JoinedAt = DateTime.UtcNow
+            },
+            new ProjectMember
+            {
+                Id = Guid.NewGuid(),
+                ProjectId = project.Id,
+                UserId = user2Id,
+                Role = ProjectRole.Viewer,
+                JoinedAt = DateTime.UtcNow
+            });
+        await fixture.DbContext.SaveChangesAsync();
+
+        var withZeroAssignments = await fixture.CardService.GetByIdAsync(card.Id, ownerId);
+        Assert.Empty(withZeroAssignments.Assignments);
+
+        await fixture.CardService.AssignUserAsync(card.Id, user1Id, ownerId);
+        var withOneAssignment = await fixture.CardService.GetByIdAsync(card.Id, ownerId);
+        Assert.Single(withOneAssignment.Assignments);
+
+        await fixture.CardService.AssignUserAsync(card.Id, user2Id, ownerId);
+        await fixture.CardService.AssignUserAsync(card.Id, ownerId, ownerId);
+        var withManyAssignments = await fixture.CardService.GetByIdAsync(card.Id, ownerId);
+
+        Assert.Equal(3, withManyAssignments.Assignments.Count);
+        Assert.Contains(withManyAssignments.Assignments, x => x.UserId == ownerId);
+        Assert.Contains(withManyAssignments.Assignments, x => x.UserId == user1Id);
+        Assert.Contains(withManyAssignments.Assignments, x => x.UserId == user2Id);
+    }
+
+    [Fact]
+    public async Task Property_37_PlannedDurationCanBeSetUpdatedAndCleared()
+    {
+        var fixture = CreateFixture();
+        var ownerId = Guid.NewGuid();
+        var project = await fixture.ProjectService.CreateAsync(ownerId, "Card duration property project", ProjectType.Team);
+        var board = await fixture.BoardService.CreateAsync(project.Id, ownerId, "Main board");
+        var column = await fixture.ColumnService.CreateAsync(board.Id, ownerId, "Todo");
+
+        var created = await fixture.CardService.CreateAsync(
+            column.Id,
+            ownerId,
+            new CreateCardDto("Duration card", "desc", null));
+        Assert.Null(created.PlannedDurationHours);
+
+        var withSetDuration = await fixture.CardService.UpdateAsync(
+            created.Id,
+            ownerId,
+            new UpdateCardDto(created.Title, created.Description, 2.5m, created.Version));
+        Assert.Equal(2.5m, withSetDuration.PlannedDurationHours);
+
+        var withUpdatedDuration = await fixture.CardService.UpdateAsync(
+            withSetDuration.Id,
+            ownerId,
+            new UpdateCardDto(withSetDuration.Title, withSetDuration.Description, 6.75m, withSetDuration.Version));
+        Assert.Equal(6.75m, withUpdatedDuration.PlannedDurationHours);
+
+        var withClearedDuration = await fixture.CardService.UpdateAsync(
+            withUpdatedDuration.Id,
+            ownerId,
+            new UpdateCardDto(withUpdatedDuration.Title, withUpdatedDuration.Description, null, withUpdatedDuration.Version));
+        Assert.Null(withClearedDuration.PlannedDurationHours);
+
+        var queried = await fixture.CardService.GetByIdAsync(created.Id, ownerId);
+        Assert.Null(queried.PlannedDurationHours);
+    }
+
+    [Fact]
     public async Task Property_38_UpdatePersistsChangesForSubsequentQuery()
     {
         var fixture = CreateFixture();

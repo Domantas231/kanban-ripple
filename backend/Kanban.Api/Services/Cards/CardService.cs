@@ -241,6 +241,169 @@ public sealed class CardService : ICardService
         return card;
     }
 
+    public async Task AssignTagAsync(Guid cardId, Guid tagId, Guid userId)
+    {
+        var card = await _dbContext.Cards
+            .Include(x => x.Column)
+                .ThenInclude(x => x.Board)
+            .FirstOrDefaultAsync(x => x.Id == cardId);
+
+        if (card is null)
+        {
+            throw new KeyNotFoundException("Card not found.");
+        }
+
+        var projectId = card.Column.Board.ProjectId;
+        var hasAccess = await CheckProjectAccessAsync(projectId, userId, ProjectRole.Member);
+        if (!hasAccess)
+        {
+            throw new UnauthorizedAccessException("Forbidden.");
+        }
+
+        var tag = await _dbContext.Tags
+            .AsNoTracking()
+            .FirstOrDefaultAsync(x => x.Id == tagId);
+
+        if (tag is null)
+        {
+            throw new KeyNotFoundException("Tag not found.");
+        }
+
+        if (tag.ProjectId != projectId)
+        {
+            throw new InvalidOperationException("Tag belongs to a different project.");
+        }
+
+        var exists = await _dbContext.CardTags
+            .AnyAsync(x => x.CardId == cardId && x.TagId == tagId);
+
+        if (exists)
+        {
+            return;
+        }
+
+        _dbContext.CardTags.Add(new CardTag
+        {
+            Id = Guid.NewGuid(),
+            CardId = cardId,
+            TagId = tagId,
+            CreatedAt = DateTime.UtcNow
+        });
+
+        card.UpdatedAt = DateTime.UtcNow;
+        await _dbContext.SaveChangesAsync();
+    }
+
+    public async Task UnassignTagAsync(Guid cardId, Guid tagId, Guid userId)
+    {
+        var card = await _dbContext.Cards
+            .Include(x => x.Column)
+                .ThenInclude(x => x.Board)
+            .FirstOrDefaultAsync(x => x.Id == cardId);
+
+        if (card is null)
+        {
+            throw new KeyNotFoundException("Card not found.");
+        }
+
+        var hasAccess = await CheckProjectAccessAsync(card.Column.Board.ProjectId, userId, ProjectRole.Member);
+        if (!hasAccess)
+        {
+            throw new UnauthorizedAccessException("Forbidden.");
+        }
+
+        var cardTag = await _dbContext.CardTags
+            .FirstOrDefaultAsync(x => x.CardId == cardId && x.TagId == tagId);
+
+        if (cardTag is null)
+        {
+            return;
+        }
+
+        _dbContext.CardTags.Remove(cardTag);
+        card.UpdatedAt = DateTime.UtcNow;
+        await _dbContext.SaveChangesAsync();
+    }
+
+    public async Task AssignUserAsync(Guid cardId, Guid assigneeUserId, Guid userId)
+    {
+        var card = await _dbContext.Cards
+            .Include(x => x.Column)
+                .ThenInclude(x => x.Board)
+            .FirstOrDefaultAsync(x => x.Id == cardId);
+
+        if (card is null)
+        {
+            throw new KeyNotFoundException("Card not found.");
+        }
+
+        var projectId = card.Column.Board.ProjectId;
+        var hasAccess = await CheckProjectAccessAsync(projectId, userId, ProjectRole.Member);
+        if (!hasAccess)
+        {
+            throw new UnauthorizedAccessException("Forbidden.");
+        }
+
+        var assigneeIsProjectMember = await _dbContext.ProjectMembers
+            .AnyAsync(x => x.ProjectId == projectId && x.UserId == assigneeUserId);
+
+        if (!assigneeIsProjectMember)
+        {
+            throw new InvalidOperationException("Assigned user must be a project member.");
+        }
+
+        var exists = await _dbContext.CardAssignments
+            .AnyAsync(x => x.CardId == cardId && x.UserId == assigneeUserId);
+
+        if (exists)
+        {
+            return;
+        }
+
+        _dbContext.CardAssignments.Add(new CardAssignment
+        {
+            Id = Guid.NewGuid(),
+            CardId = cardId,
+            UserId = assigneeUserId,
+            AssignedBy = userId,
+            AssignedAt = DateTime.UtcNow
+        });
+
+        card.UpdatedAt = DateTime.UtcNow;
+        await _dbContext.SaveChangesAsync();
+    }
+
+    public async Task UnassignUserAsync(Guid cardId, Guid assigneeUserId, Guid userId)
+    {
+        var card = await _dbContext.Cards
+            .Include(x => x.Column)
+                .ThenInclude(x => x.Board)
+            .FirstOrDefaultAsync(x => x.Id == cardId);
+
+        if (card is null)
+        {
+            throw new KeyNotFoundException("Card not found.");
+        }
+
+        var hasAccess = await CheckProjectAccessAsync(card.Column.Board.ProjectId, userId, ProjectRole.Member);
+        if (!hasAccess)
+        {
+            throw new UnauthorizedAccessException("Forbidden.");
+        }
+
+        var assignment = await _dbContext.CardAssignments
+            .FirstOrDefaultAsync(x => x.CardId == cardId && x.UserId == assigneeUserId);
+
+        if (assignment is null)
+        {
+            return;
+        }
+
+        _dbContext.CardAssignments.Remove(assignment);
+        card.UpdatedAt = DateTime.UtcNow;
+        await _dbContext.SaveChangesAsync();
+    }
+
     public async Task ArchiveAsync(Guid cardId, Guid userId)
     {
         var card = await _dbContext.Cards
