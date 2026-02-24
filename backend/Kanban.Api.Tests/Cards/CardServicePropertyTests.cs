@@ -4,6 +4,7 @@ using Kanban.Api.Services.Boards;
 using Kanban.Api.Services.Cards;
 using Kanban.Api.Services.Columns;
 using Kanban.Api.Services.Projects;
+using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 
 namespace Kanban.Api.Tests.Cards;
@@ -184,6 +185,176 @@ public class CardServicePropertyTests
 
         await Assert.ThrowsAsync<KeyNotFoundException>(
             () => fixture.CardService.GetByIdAsync(card.Id, ownerId));
+    }
+
+    [Fact]
+    public async Task Property_42_MoveToDifferentColumnUpdatesCardColumnId()
+    {
+        var fixture = CreateFixture();
+        var ownerId = Guid.NewGuid();
+        var project = await fixture.ProjectService.CreateAsync(ownerId, "Card movement project", ProjectType.Team);
+        var board = await fixture.BoardService.CreateAsync(project.Id, ownerId, "Main board");
+        var sourceColumn = await fixture.ColumnService.CreateAsync(board.Id, ownerId, "Todo");
+        var targetColumn = await fixture.ColumnService.CreateAsync(board.Id, ownerId, "Doing");
+
+        var firstInTarget = await fixture.CardService.CreateAsync(
+            targetColumn.Id,
+            ownerId,
+            new CreateCardDto("Existing target card", "desc", null));
+        var movable = await fixture.CardService.CreateAsync(
+            sourceColumn.Id,
+            ownerId,
+            new CreateCardDto("Movable", "desc", null));
+
+        var moved = await fixture.CardService.MoveAsync(
+            movable.Id,
+            ownerId,
+            new MoveCardDto(targetColumn.Id, 1));
+
+        var persisted = await fixture.CardService.GetByIdAsync(movable.Id, ownerId);
+
+        Assert.Equal(targetColumn.Id, moved.ColumnId);
+        Assert.Equal(targetColumn.Id, persisted.ColumnId);
+        Assert.True(moved.UpdatedAt >= movable.UpdatedAt);
+        Assert.True(moved.Position > firstInTarget.Position);
+    }
+
+    [Fact]
+    public async Task Property_43_ReorderWithinColumnUsesGapBasedMidpoint()
+    {
+        var fixture = CreateFixture();
+        var ownerId = Guid.NewGuid();
+        var project = await fixture.ProjectService.CreateAsync(ownerId, "Card reorder midpoint project", ProjectType.Team);
+        var board = await fixture.BoardService.CreateAsync(project.Id, ownerId, "Main board");
+        var column = await fixture.ColumnService.CreateAsync(board.Id, ownerId, "Todo");
+
+        var first = await fixture.CardService.CreateAsync(column.Id, ownerId, new CreateCardDto("First", null, null));
+        var second = await fixture.CardService.CreateAsync(column.Id, ownerId, new CreateCardDto("Second", null, null));
+        var third = await fixture.CardService.CreateAsync(column.Id, ownerId, new CreateCardDto("Third", null, null));
+
+        var moved = await fixture.CardService.MoveAsync(
+            third.Id,
+            ownerId,
+            new MoveCardDto(column.Id, 1));
+
+        var expectedPosition = (first.Position + second.Position) / 2;
+        var ordered = await fixture.DbContext.Cards
+            .Where(x => x.ColumnId == column.Id)
+            .OrderBy(x => x.Position)
+            .ThenBy(x => x.Id)
+            .ToListAsync();
+
+        Assert.Equal(expectedPosition, moved.Position);
+        Assert.Collection(
+            ordered,
+            card => Assert.Equal(first.Id, card.Id),
+            card => Assert.Equal(third.Id, card.Id),
+            card => Assert.Equal(second.Id, card.Id));
+    }
+
+    [Fact]
+    public async Task Property_43_Integration_CollisionTriggersRenumberWithStableOrdering()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+
+        var options = new DbContextOptionsBuilder<ApplicationDbContext>()
+            .UseSqlite(connection)
+            .Options;
+
+        await using var dbContext = new ApplicationDbContext(options);
+        await dbContext.Database.EnsureCreatedAsync();
+
+        var projectService = new ProjectService(dbContext);
+        var boardService = new BoardService(dbContext);
+        var columnService = new ColumnService(dbContext);
+        var cardService = new CardService(dbContext);
+
+        Assert.True(dbContext.Database.IsRelational());
+
+        var ownerId = Guid.NewGuid();
+        dbContext.Users.Add(new ApplicationUser
+        {
+            Id = ownerId,
+            Email = "owner@example.test",
+            UserName = "owner@example.test",
+            NormalizedEmail = "OWNER@EXAMPLE.TEST",
+            NormalizedUserName = "OWNER@EXAMPLE.TEST",
+            SecurityStamp = Guid.NewGuid().ToString("N"),
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow
+        });
+        await dbContext.SaveChangesAsync();
+
+        var project = await projectService.CreateAsync(ownerId, "Card reorder collision project", ProjectType.Team);
+        var board = await boardService.CreateAsync(project.Id, ownerId, "Main board");
+        var column = await columnService.CreateAsync(board.Id, ownerId, "Todo");
+
+        var now = DateTime.UtcNow;
+        var before = new Card
+        {
+            Id = Guid.NewGuid(),
+            ColumnId = column.Id,
+            Title = "Before",
+            Position = 1000,
+            CreatedAt = now,
+            UpdatedAt = now,
+            CreatedBy = ownerId
+        };
+        var after = new Card
+        {
+            Id = Guid.NewGuid(),
+            ColumnId = column.Id,
+            Title = "After",
+            Position = 1001,
+            CreatedAt = now,
+            UpdatedAt = now,
+            CreatedBy = ownerId
+        };
+        var movable = new Card
+        {
+            Id = Guid.NewGuid(),
+            ColumnId = column.Id,
+            Title = "Movable",
+            Position = 9000,
+            CreatedAt = now,
+            UpdatedAt = now,
+            CreatedBy = ownerId
+        };
+
+        dbContext.Cards.AddRange(before, after, movable);
+        await dbContext.SaveChangesAsync();
+
+        var moved = await cardService.MoveAsync(
+            movable.Id,
+            ownerId,
+            new MoveCardDto(column.Id, 1));
+
+        var ordered = await dbContext.Cards
+            .Where(x => x.ColumnId == column.Id)
+            .OrderBy(x => x.Position)
+            .ThenBy(x => x.Id)
+            .ToListAsync();
+
+        Assert.Collection(
+            ordered,
+            card =>
+            {
+                Assert.Equal(before.Id, card.Id);
+                Assert.Equal(1000, card.Position);
+            },
+            card =>
+            {
+                Assert.Equal(movable.Id, card.Id);
+                Assert.Equal(2000, card.Position);
+            },
+            card =>
+            {
+                Assert.Equal(after.Id, card.Id);
+                Assert.Equal(3000, card.Position);
+            });
+
+        Assert.Equal(2000, moved.Position);
     }
 
     private static TestFixture CreateFixture()

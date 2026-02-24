@@ -1,3 +1,4 @@
+using System.Data;
 using Kanban.Api.Data;
 using Kanban.Api.Models;
 using Kanban.Api.Services;
@@ -133,6 +134,108 @@ public sealed class CardService : ICardService
         catch (DbUpdateConcurrencyException)
         {
             throw new ConflictException("Card has been modified. Please refresh and try again.");
+        }
+
+        return card;
+    }
+
+    public async Task<Card> MoveAsync(Guid cardId, Guid userId, MoveCardDto data)
+    {
+        await using var transaction = _dbContext.Database.IsRelational()
+            ? await _dbContext.Database.BeginTransactionAsync(IsolationLevel.Serializable)
+            : null;
+
+        var card = await _dbContext.Cards
+            .Include(x => x.Column)
+                .ThenInclude(x => x.Board)
+            .FirstOrDefaultAsync(x => x.Id == cardId);
+
+        if (card is null)
+        {
+            throw new KeyNotFoundException("Card not found.");
+        }
+
+        var targetColumn = await _dbContext.Columns
+            .Include(x => x.Board)
+            .FirstOrDefaultAsync(x => x.Id == data.ColumnId);
+
+        if (targetColumn is null)
+        {
+            throw new KeyNotFoundException("Column not found.");
+        }
+
+        if (card.Column.Board.ProjectId != targetColumn.Board.ProjectId)
+        {
+            throw new InvalidOperationException("Card can only be moved within the same project.");
+        }
+
+        var hasAccess = await CheckProjectAccessAsync(targetColumn.Board.ProjectId, userId, ProjectRole.Member);
+        if (!hasAccess)
+        {
+            throw new UnauthorizedAccessException("Forbidden.");
+        }
+
+        var targetCards = await _dbContext.Cards
+            .Where(x => x.ColumnId == targetColumn.Id && x.Id != card.Id)
+            .OrderBy(x => x.Position)
+            .ThenBy(x => x.Id)
+            .ToListAsync();
+
+        var insertionIndex = Math.Clamp(data.Position, 0, targetCards.Count);
+        var before = insertionIndex > 0 ? targetCards[insertionIndex - 1] : null;
+        var after = insertionIndex < targetCards.Count ? targetCards[insertionIndex] : null;
+
+        var now = DateTime.UtcNow;
+        var requiresRenumber = false;
+        var newPosition = PositionGap;
+
+        if (before is not null && after is not null)
+        {
+            var gap = after.Position - before.Position;
+            requiresRenumber = gap < 2;
+            newPosition = (before.Position + after.Position) / 2;
+        }
+        else if (before is null && after is not null)
+        {
+            newPosition = after.Position - PositionGap;
+            requiresRenumber = targetCards.Any(x => x.Position == newPosition);
+        }
+        else if (before is not null)
+        {
+            newPosition = before.Position + PositionGap;
+            requiresRenumber = targetCards.Any(x => x.Position == newPosition);
+        }
+
+        if (!requiresRenumber)
+        {
+            card.ColumnId = targetColumn.Id;
+            card.Position = newPosition;
+            card.UpdatedAt = now;
+
+            await _dbContext.SaveChangesAsync();
+
+            if (transaction is not null)
+            {
+                await transaction.CommitAsync();
+            }
+
+            return card;
+        }
+
+        var reordered = BuildOrderedCards(targetCards, card, insertionIndex);
+
+        for (var index = 0; index < reordered.Count; index++)
+        {
+            reordered[index].ColumnId = targetColumn.Id;
+            reordered[index].Position = (index + 1) * PositionGap;
+            reordered[index].UpdatedAt = now;
+        }
+
+        await _dbContext.SaveChangesAsync();
+
+        if (transaction is not null)
+        {
+            await transaction.CommitAsync();
         }
 
         return card;
@@ -276,5 +379,13 @@ public sealed class CardService : ICardService
 
         var trimmed = description.Trim();
         return trimmed.Length == 0 ? null : trimmed;
+    }
+
+    private static List<Card> BuildOrderedCards(IReadOnlyList<Card> targetCards, Card movable, int insertionIndex)
+    {
+        var ordered = targetCards.ToList();
+        var clampedIndex = Math.Clamp(insertionIndex, 0, ordered.Count);
+        ordered.Insert(clampedIndex, movable);
+        return ordered;
     }
 }
