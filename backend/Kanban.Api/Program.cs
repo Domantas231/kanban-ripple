@@ -18,6 +18,7 @@ using Kanban.Api.Services.Columns;
 using Kanban.Api.Services.Projects;
 using Kanban.Api.Services.Cards;
 using Kanban.Api.Services.Tags;
+using Kanban.Api.Services.Notifications;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -97,6 +98,7 @@ builder.Services.AddScoped<IBoardService, BoardService>();
 builder.Services.AddScoped<IColumnService, ColumnService>();
 builder.Services.AddScoped<ICardService, CardService>();
 builder.Services.AddScoped<ITagService, TagService>();
+builder.Services.AddScoped<INotificationService, NotificationService>();
 builder.Services.AddScoped<IInvitationService, InvitationService>();
 builder.Services.AddHostedService<InvitationCleanupService>();
 builder.Services.AddSingleton<IAccessTokenBlocklist, MemoryAccessTokenBlocklist>();
