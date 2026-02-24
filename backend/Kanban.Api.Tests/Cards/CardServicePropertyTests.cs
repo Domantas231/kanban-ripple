@@ -580,6 +580,7 @@ public class CardServicePropertyTests
             card.Id,
             ownerId,
             new CreateSubtaskDto("Draft doc"));
+        var createdUpdatedAt = created.UpdatedAt;
 
         await Task.Delay(10);
 
@@ -587,6 +588,11 @@ public class CardServicePropertyTests
             created.Id,
             ownerId,
             new UpdateSubtaskDto("Final doc", true));
+
+        Assert.Equal("Final doc", toggledOn.Description);
+        Assert.True(toggledOn.Completed);
+        Assert.True(toggledOn.UpdatedAt > createdUpdatedAt);
+        var toggledOnUpdatedAt = toggledOn.UpdatedAt;
 
         await Task.Delay(10);
 
@@ -598,11 +604,8 @@ public class CardServicePropertyTests
         var persisted = await fixture.DbContext.Subtasks
             .SingleAsync(x => x.Id == created.Id);
 
-        Assert.Equal("Final doc", toggledOn.Description);
-        Assert.True(toggledOn.Completed);
-        Assert.True(toggledOn.UpdatedAt > created.UpdatedAt);
         Assert.False(toggledOff.Completed);
-        Assert.True(toggledOff.UpdatedAt > toggledOn.UpdatedAt);
+        Assert.True(toggledOff.UpdatedAt > toggledOnUpdatedAt);
         Assert.Equal("Final doc", persisted.Description);
         Assert.False(persisted.Completed);
     }
