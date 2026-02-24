@@ -102,6 +102,8 @@ public sealed class CardService : ICardService
 
         var searchQuery = _dbContext.Cards
             .AsNoTracking()
+            .Include(x => x.Column)
+                .ThenInclude(x => x.Board)
             .Where(x => x.Column.Board.ProjectId == projectId)
             .Where(x => EF.Functions.ILike(x.Title, wildcardQuery)
                 || EF.Functions.ILike(x.Description ?? string.Empty, wildcardQuery));
