@@ -4,6 +4,7 @@ using Kanban.Api.Models;
 using Kanban.Api.Services;
 using Kanban.Api.Services.Notifications;
 using Kanban.Api.Services.Projects;
+using Kanban.Api.Services.Subscriptions;
 using Microsoft.EntityFrameworkCore;
 
 namespace Kanban.Api.Services.Cards;
@@ -20,11 +21,21 @@ public sealed class CardService : ICardService
 
     private readonly ApplicationDbContext _dbContext;
     private readonly INotificationService _notificationService;
+    private readonly ISubscriptionService? _subscriptionService;
 
     public CardService(ApplicationDbContext dbContext, INotificationService notificationService)
+        : this(dbContext, notificationService, null)
+    {
+    }
+
+    public CardService(
+        ApplicationDbContext dbContext,
+        INotificationService notificationService,
+        ISubscriptionService? subscriptionService)
     {
         _dbContext = dbContext;
         _notificationService = notificationService;
+        _subscriptionService = subscriptionService;
     }
 
     public async Task<PaginatedResponse<Card>> ListByBoardAsync(Guid boardId, Guid userId, int page, int pageSize)
@@ -242,6 +253,17 @@ public sealed class CardService : ICardService
         _dbContext.Cards.Add(card);
         await _dbContext.SaveChangesAsync();
 
+        await NotifySubscribersAsync(
+            EntityType.Column,
+            columnId,
+            userId,
+            NotificationType.CardCreated,
+            $"Card created: {card.Title}",
+            $"{await GetActorLabelAsync(userId)} created card '{card.Title}' in column '{column.Name}'.",
+            entityType: "card",
+            entityId: card.Id,
+            createdBy: userId);
+
         return card;
     }
 
@@ -316,6 +338,17 @@ public sealed class CardService : ICardService
             throw new ConflictException("Card has been modified. Please refresh and try again.");
         }
 
+        await NotifySubscribersAsync(
+            EntityType.Card,
+            card.Id,
+            userId,
+            NotificationType.CardUpdated,
+            $"Card updated: {card.Title}",
+            $"{await GetActorLabelAsync(userId)} updated card '{card.Title}'.",
+            entityType: "card",
+            entityId: card.Id,
+            createdBy: userId);
+
         return card;
     }
 
@@ -348,6 +381,9 @@ public sealed class CardService : ICardService
         {
             throw new InvalidOperationException("Card can only be moved within the same project.");
         }
+
+        var sourceColumnId = card.ColumnId;
+        var sourceColumnName = card.Column.Name;
 
         var hasAccess = await CheckProjectAccessAsync(targetColumn.Board.ProjectId, userId, ProjectRole.Member);
         if (!hasAccess)
@@ -399,6 +435,33 @@ public sealed class CardService : ICardService
                 await transaction.CommitAsync();
             }
 
+            var actorLabel = await GetActorLabelAsync(userId);
+
+            await NotifySubscribersAsync(
+                EntityType.Card,
+                card.Id,
+                userId,
+                NotificationType.CardMoved,
+                $"Card moved: {card.Title}",
+                $"{actorLabel} moved card '{card.Title}' from '{sourceColumnName}' to '{targetColumn.Name}'.",
+                entityType: "card",
+                entityId: card.Id,
+                createdBy: userId);
+
+            if (targetColumn.Id != sourceColumnId)
+            {
+                await NotifySubscribersAsync(
+                    EntityType.Column,
+                    targetColumn.Id,
+                    userId,
+                    NotificationType.CardMoved,
+                    $"Card moved into column: {card.Title}",
+                    $"{actorLabel} moved card '{card.Title}' into column '{targetColumn.Name}'.",
+                    entityType: "card",
+                    entityId: card.Id,
+                    createdBy: userId);
+            }
+
             return card;
         }
 
@@ -416,6 +479,33 @@ public sealed class CardService : ICardService
         if (transaction is not null)
         {
             await transaction.CommitAsync();
+        }
+
+        var actor = await GetActorLabelAsync(userId);
+
+        await NotifySubscribersAsync(
+            EntityType.Card,
+            card.Id,
+            userId,
+            NotificationType.CardMoved,
+            $"Card moved: {card.Title}",
+            $"{actor} moved card '{card.Title}' from '{sourceColumnName}' to '{targetColumn.Name}'.",
+            entityType: "card",
+            entityId: card.Id,
+            createdBy: userId);
+
+        if (targetColumn.Id != sourceColumnId)
+        {
+            await NotifySubscribersAsync(
+                EntityType.Column,
+                targetColumn.Id,
+                userId,
+                NotificationType.CardMoved,
+                $"Card moved into column: {card.Title}",
+                $"{actor} moved card '{card.Title}' into column '{targetColumn.Name}'.",
+                entityType: "card",
+                entityId: card.Id,
+                createdBy: userId);
         }
 
         return card;
@@ -807,6 +897,17 @@ public sealed class CardService : ICardService
         {
             await transaction.CommitAsync();
         }
+
+        await NotifySubscribersAsync(
+            EntityType.Card,
+            card.Id,
+            userId,
+            NotificationType.CardDeleted,
+            $"Card deleted: {card.Title}",
+            $"{await GetActorLabelAsync(userId)} deleted card '{card.Title}'.",
+            entityType: "card",
+            entityId: card.Id,
+            createdBy: userId);
     }
 
     public async Task RestoreAsync(Guid cardId, Guid userId)
@@ -934,5 +1035,51 @@ public sealed class CardService : ICardService
         var clampedIndex = Math.Clamp(insertionIndex, 0, ordered.Count);
         ordered.Insert(clampedIndex, movable);
         return ordered;
+    }
+
+    private async Task NotifySubscribersAsync(
+        EntityType subscriptionEntityType,
+        Guid subscriptionEntityId,
+        Guid actorUserId,
+        NotificationType notificationType,
+        string title,
+        string message,
+        string? entityType,
+        Guid? entityId,
+        Guid? createdBy)
+    {
+        if (_subscriptionService is null)
+        {
+            return;
+        }
+
+        var subscriberIds = await _subscriptionService.GetSubscriberIdsAsync(subscriptionEntityType, subscriptionEntityId);
+        if (subscriberIds.Count == 0)
+        {
+            return;
+        }
+
+        foreach (var subscriberId in subscriberIds.Where(x => x != actorUserId).Distinct())
+        {
+            await _notificationService.CreateAsync(
+                subscriberId,
+                notificationType,
+                title,
+                message,
+                entityType: entityType,
+                entityId: entityId,
+                createdBy: createdBy);
+        }
+    }
+
+    private async Task<string> GetActorLabelAsync(Guid actorUserId)
+    {
+        var actorDisplay = await _dbContext.Users
+            .AsNoTracking()
+            .Where(x => x.Id == actorUserId)
+            .Select(x => x.Email ?? x.UserName)
+            .FirstOrDefaultAsync();
+
+        return string.IsNullOrWhiteSpace(actorDisplay) ? "A user" : actorDisplay;
     }
 }

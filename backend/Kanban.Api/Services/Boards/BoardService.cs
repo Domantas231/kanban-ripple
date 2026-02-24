@@ -1,5 +1,7 @@
 using Kanban.Api.Data;
 using Kanban.Api.Models;
+using Kanban.Api.Services.Notifications;
+using Kanban.Api.Services.Subscriptions;
 using Microsoft.EntityFrameworkCore;
 
 namespace Kanban.Api.Services.Boards;
@@ -7,10 +9,22 @@ namespace Kanban.Api.Services.Boards;
 public sealed class BoardService : IBoardService
 {
     private readonly ApplicationDbContext _dbContext;
+    private readonly ISubscriptionService? _subscriptionService;
+    private readonly INotificationService? _notificationService;
 
     public BoardService(ApplicationDbContext dbContext)
+        : this(dbContext, null, null)
+    {
+    }
+
+    public BoardService(
+        ApplicationDbContext dbContext,
+        ISubscriptionService? subscriptionService,
+        INotificationService? notificationService)
     {
         _dbContext = dbContext;
+        _subscriptionService = subscriptionService;
+        _notificationService = notificationService;
     }
 
     public async Task<Board> CreateAsync(Guid projectId, Guid userId, string name)
@@ -50,6 +64,17 @@ public sealed class BoardService : IBoardService
 
         _dbContext.Boards.Add(board);
         await _dbContext.SaveChangesAsync();
+
+        await NotifySubscribersAsync(
+            EntityType.Project,
+            projectId,
+            userId,
+            NotificationType.CardCreated,
+            $"Board created: {board.Name}",
+            $"{await GetActorLabelAsync(userId)} added board '{board.Name}' to the project.",
+            entityType: "board",
+            entityId: board.Id,
+            createdBy: userId);
 
         return board;
     }
@@ -273,5 +298,51 @@ public sealed class BoardService : IBoardService
     private static bool HasRequiredRole(ProjectRole actualRole, ProjectRole minimumRole)
     {
         return actualRole <= minimumRole;
+    }
+
+    private async Task NotifySubscribersAsync(
+        EntityType subscriptionEntityType,
+        Guid subscriptionEntityId,
+        Guid actorUserId,
+        NotificationType notificationType,
+        string title,
+        string message,
+        string? entityType,
+        Guid? entityId,
+        Guid? createdBy)
+    {
+        if (_subscriptionService is null || _notificationService is null)
+        {
+            return;
+        }
+
+        var subscriberIds = await _subscriptionService.GetSubscriberIdsAsync(subscriptionEntityType, subscriptionEntityId);
+        if (subscriberIds.Count == 0)
+        {
+            return;
+        }
+
+        foreach (var subscriberId in subscriberIds.Where(x => x != actorUserId).Distinct())
+        {
+            await _notificationService.CreateAsync(
+                subscriberId,
+                notificationType,
+                title,
+                message,
+                entityType: entityType,
+                entityId: entityId,
+                createdBy: createdBy);
+        }
+    }
+
+    private async Task<string> GetActorLabelAsync(Guid actorUserId)
+    {
+        var actorDisplay = await _dbContext.Users
+            .AsNoTracking()
+            .Where(x => x.Id == actorUserId)
+            .Select(x => x.Email ?? x.UserName)
+            .FirstOrDefaultAsync();
+
+        return string.IsNullOrWhiteSpace(actorDisplay) ? "A user" : actorDisplay;
     }
 }

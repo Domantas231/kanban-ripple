@@ -1,6 +1,8 @@
 using System.Data;
 using Kanban.Api.Data;
 using Kanban.Api.Models;
+using Kanban.Api.Services.Notifications;
+using Kanban.Api.Services.Subscriptions;
 using Microsoft.EntityFrameworkCore;
 
 namespace Kanban.Api.Services.Columns;
@@ -10,10 +12,22 @@ public sealed class ColumnService : IColumnService
     private const int PositionGap = 1000;
 
     private readonly ApplicationDbContext _dbContext;
+    private readonly ISubscriptionService? _subscriptionService;
+    private readonly INotificationService? _notificationService;
 
     public ColumnService(ApplicationDbContext dbContext)
+        : this(dbContext, null, null)
+    {
+    }
+
+    public ColumnService(
+        ApplicationDbContext dbContext,
+        ISubscriptionService? subscriptionService,
+        INotificationService? notificationService)
     {
         _dbContext = dbContext;
+        _subscriptionService = subscriptionService;
+        _notificationService = notificationService;
     }
 
     public async Task<Column> CreateAsync(Guid boardId, Guid userId, string name)
@@ -134,6 +148,18 @@ public sealed class ColumnService : IColumnService
         column.UpdatedAt = DateTime.UtcNow;
 
         await _dbContext.SaveChangesAsync();
+
+        await NotifySubscribersAsync(
+            EntityType.Column,
+            column.Id,
+            userId,
+            NotificationType.CardUpdated,
+            $"Column updated: {column.Name}",
+            $"{await GetActorLabelAsync(userId)} updated column '{column.Name}'.",
+            entityType: "column",
+            entityId: column.Id,
+            createdBy: userId);
+
         return column;
     }
 
@@ -252,6 +278,17 @@ public sealed class ColumnService : IColumnService
                 await transaction.CommitAsync();
             }
 
+            await NotifySubscribersAsync(
+                EntityType.Column,
+                movable.Id,
+                userId,
+                NotificationType.CardMoved,
+                $"Column moved: {movable.Name}",
+                $"{await GetActorLabelAsync(userId)} moved column '{movable.Name}'.",
+                entityType: "column",
+                entityId: movable.Id,
+                createdBy: userId);
+
             return movable;
         }
 
@@ -269,6 +306,17 @@ public sealed class ColumnService : IColumnService
         {
             await transaction.CommitAsync();
         }
+
+        await NotifySubscribersAsync(
+            EntityType.Column,
+            movable.Id,
+            userId,
+            NotificationType.CardMoved,
+            $"Column moved: {movable.Name}",
+            $"{await GetActorLabelAsync(userId)} moved column '{movable.Name}'.",
+            entityType: "column",
+            entityId: movable.Id,
+            createdBy: userId);
 
         return movable;
     }
@@ -314,6 +362,17 @@ public sealed class ColumnService : IColumnService
         {
             await transaction.CommitAsync();
         }
+
+        await NotifySubscribersAsync(
+            EntityType.Column,
+            column.Id,
+            userId,
+            NotificationType.CardDeleted,
+            $"Column deleted: {column.Name}",
+            $"{await GetActorLabelAsync(userId)} deleted column '{column.Name}'.",
+            entityType: "column",
+            entityId: column.Id,
+            createdBy: userId);
     }
 
     public async Task RestoreAsync(Guid columnId, Guid userId)
@@ -359,6 +418,17 @@ public sealed class ColumnService : IColumnService
         {
             await transaction.CommitAsync();
         }
+
+        await NotifySubscribersAsync(
+            EntityType.Column,
+            column.Id,
+            userId,
+            NotificationType.CardCreated,
+            $"Column restored: {column.Name}",
+            $"{await GetActorLabelAsync(userId)} restored column '{column.Name}'.",
+            entityType: "column",
+            entityId: column.Id,
+            createdBy: userId);
     }
 
     private async Task<bool> CheckProjectAccessAsync(Guid projectId, Guid userId, ProjectRole minimumRole)
@@ -406,5 +476,51 @@ public sealed class ColumnService : IColumnService
         var afterAnchorIndex = ordered.FindIndex(x => x.Id == afterId!.Value);
         ordered.Insert(afterAnchorIndex, moving);
         return ordered;
+    }
+
+    private async Task NotifySubscribersAsync(
+        EntityType subscriptionEntityType,
+        Guid subscriptionEntityId,
+        Guid actorUserId,
+        NotificationType notificationType,
+        string title,
+        string message,
+        string? entityType,
+        Guid? entityId,
+        Guid? createdBy)
+    {
+        if (_subscriptionService is null || _notificationService is null)
+        {
+            return;
+        }
+
+        var subscriberIds = await _subscriptionService.GetSubscriberIdsAsync(subscriptionEntityType, subscriptionEntityId);
+        if (subscriberIds.Count == 0)
+        {
+            return;
+        }
+
+        foreach (var subscriberId in subscriberIds.Where(x => x != actorUserId).Distinct())
+        {
+            await _notificationService.CreateAsync(
+                subscriberId,
+                notificationType,
+                title,
+                message,
+                entityType: entityType,
+                entityId: entityId,
+                createdBy: createdBy);
+        }
+    }
+
+    private async Task<string> GetActorLabelAsync(Guid actorUserId)
+    {
+        var actorDisplay = await _dbContext.Users
+            .AsNoTracking()
+            .Where(x => x.Id == actorUserId)
+            .Select(x => x.Email ?? x.UserName)
+            .FirstOrDefaultAsync();
+
+        return string.IsNullOrWhiteSpace(actorDisplay) ? "A user" : actorDisplay;
     }
 }
