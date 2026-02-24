@@ -120,6 +120,66 @@ public sealed class CardService : ICardService
         return new PaginatedResponse<Card>(items, effectivePage, effectivePageSize, totalCount);
     }
 
+    public async Task<List<Card>> FilterAsync(Guid boardId, Guid userId, FilterCriteria filters)
+    {
+        var board = await _dbContext.Boards
+            .AsNoTracking()
+            .FirstOrDefaultAsync(x => x.Id == boardId);
+
+        if (board is null)
+        {
+            throw new KeyNotFoundException("Board not found.");
+        }
+
+        var hasAccess = await CheckProjectAccessAsync(board.ProjectId, userId, ProjectRole.Viewer);
+        if (!hasAccess)
+        {
+            throw new UnauthorizedAccessException("Forbidden.");
+        }
+
+        var tagIds = filters.TagIds?
+            .Where(x => x != Guid.Empty)
+            .Distinct()
+            .ToArray() ?? Array.Empty<Guid>();
+
+        var userIds = filters.UserIds?
+            .Where(x => x != Guid.Empty)
+            .Distinct()
+            .ToArray() ?? Array.Empty<Guid>();
+
+        var columnIds = filters.ColumnIds?
+            .Where(x => x != Guid.Empty)
+            .Distinct()
+            .ToArray() ?? Array.Empty<Guid>();
+
+        var query = _dbContext.Cards
+            .AsNoTracking()
+            .Include(x => x.Column)
+            .Where(x => x.Column.BoardId == boardId)
+            .AsQueryable();
+
+        if (tagIds.Length > 0)
+        {
+            query = query.Where(x => x.CardTags.Any(cardTag => tagIds.Contains(cardTag.TagId)));
+        }
+
+        if (userIds.Length > 0)
+        {
+            query = query.Where(x => x.Assignments.Any(assignment => userIds.Contains(assignment.UserId)));
+        }
+
+        if (columnIds.Length > 0)
+        {
+            query = query.Where(x => columnIds.Contains(x.ColumnId));
+        }
+
+        return await query
+            .OrderBy(x => x.Column.Position)
+            .ThenBy(x => x.Position)
+            .ThenBy(x => x.Id)
+            .ToListAsync();
+    }
+
     public async Task<Card> CreateAsync(Guid columnId, Guid userId, CreateCardDto data)
     {
         if (string.IsNullOrWhiteSpace(data.Title))

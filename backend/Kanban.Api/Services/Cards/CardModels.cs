@@ -12,6 +12,11 @@ public sealed record UpdateCardDto(string Title, string? Description, decimal? P
 
 public sealed record MoveCardDto(Guid ColumnId, int Position);
 
+public sealed record FilterCriteria(
+	IReadOnlyCollection<Guid>? TagIds,
+	IReadOnlyCollection<Guid>? UserIds,
+	IReadOnlyCollection<Guid>? ColumnIds);
+
 public sealed record CreateSubtaskRequest(string Description);
 
 public sealed record UpdateSubtaskRequest(string? Description, bool? Completed);

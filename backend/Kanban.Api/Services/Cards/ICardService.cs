@@ -7,6 +7,7 @@ public interface ICardService
 {
     Task<PaginatedResponse<Card>> ListByBoardAsync(Guid boardId, Guid userId, int page, int pageSize);
     Task<PaginatedResponse<Card>> SearchAsync(Guid projectId, Guid userId, string query, int page, int pageSize);
+    Task<List<Card>> FilterAsync(Guid boardId, Guid userId, FilterCriteria filters);
     Task<Card> CreateAsync(Guid columnId, Guid userId, CreateCardDto data);
     Task<Card> GetByIdAsync(Guid cardId, Guid userId);
     Task<Card> UpdateAsync(Guid cardId, Guid userId, UpdateCardDto data);

@@ -662,6 +662,440 @@ public class CardServicePropertyTests
         Assert.Equal(3, counts.Total);
     }
 
+    [Fact]
+    public async Task Property_54_FilterByTagsReturnsOnlyCardsWithAtLeastOneMatchingTag()
+    {
+        var fixture = CreateFixture();
+        var ownerId = Guid.NewGuid();
+
+        var project = await fixture.ProjectService.CreateAsync(ownerId, "Filter tags project", ProjectType.Team);
+        var board = await fixture.BoardService.CreateAsync(project.Id, ownerId, "Main board");
+        var column = await fixture.ColumnService.CreateAsync(board.Id, ownerId, "Todo");
+
+        var tagA = new Tag
+        {
+            Id = Guid.NewGuid(),
+            ProjectId = project.Id,
+            Name = "A",
+            Color = "#111111",
+            CreatedAt = DateTime.UtcNow
+        };
+        var tagB = new Tag
+        {
+            Id = Guid.NewGuid(),
+            ProjectId = project.Id,
+            Name = "B",
+            Color = "#222222",
+            CreatedAt = DateTime.UtcNow
+        };
+        var tagC = new Tag
+        {
+            Id = Guid.NewGuid(),
+            ProjectId = project.Id,
+            Name = "C",
+            Color = "#333333",
+            CreatedAt = DateTime.UtcNow
+        };
+
+        fixture.DbContext.Tags.AddRange(tagA, tagB, tagC);
+        await fixture.DbContext.SaveChangesAsync();
+
+        var matchA = await fixture.CardService.CreateAsync(column.Id, ownerId, new CreateCardDto("Match A", null, null));
+        await fixture.CardService.AssignTagAsync(matchA.Id, tagA.Id, ownerId);
+
+        var matchB = await fixture.CardService.CreateAsync(column.Id, ownerId, new CreateCardDto("Match B", null, null));
+        await fixture.CardService.AssignTagAsync(matchB.Id, tagB.Id, ownerId);
+
+        var matchAny = await fixture.CardService.CreateAsync(column.Id, ownerId, new CreateCardDto("Match any", null, null));
+        await fixture.CardService.AssignTagAsync(matchAny.Id, tagA.Id, ownerId);
+        await fixture.CardService.AssignTagAsync(matchAny.Id, tagC.Id, ownerId);
+
+        var nonMatch = await fixture.CardService.CreateAsync(column.Id, ownerId, new CreateCardDto("Non-match", null, null));
+        await fixture.CardService.AssignTagAsync(nonMatch.Id, tagC.Id, ownerId);
+
+        _ = await fixture.CardService.CreateAsync(column.Id, ownerId, new CreateCardDto("No tags", null, null));
+
+        var filtered = await fixture.CardService.FilterAsync(
+            board.Id,
+            ownerId,
+            new FilterCriteria(new[] { tagA.Id, tagB.Id }, Array.Empty<Guid>(), Array.Empty<Guid>()));
+
+        var resultIds = filtered.Select(x => x.Id).ToHashSet();
+        Assert.Equal(3, filtered.Count);
+        Assert.Contains(matchA.Id, resultIds);
+        Assert.Contains(matchB.Id, resultIds);
+        Assert.Contains(matchAny.Id, resultIds);
+        Assert.DoesNotContain(nonMatch.Id, resultIds);
+    }
+
+    [Fact]
+    public async Task Property_55_FilterByUsersReturnsOnlyCardsAssignedToAtLeastOneMatchingUser()
+    {
+        var fixture = CreateFixture();
+        var ownerId = Guid.NewGuid();
+        var assigneeXId = Guid.NewGuid();
+        var assigneeYId = Guid.NewGuid();
+        var assigneeZId = Guid.NewGuid();
+
+        fixture.DbContext.Users.AddRange(
+            new ApplicationUser
+            {
+                Id = ownerId,
+                Email = "filter-owner@example.test",
+                UserName = "filter-owner@example.test",
+                NormalizedEmail = "FILTER-OWNER@EXAMPLE.TEST",
+                NormalizedUserName = "FILTER-OWNER@EXAMPLE.TEST",
+                SecurityStamp = Guid.NewGuid().ToString("N"),
+                CreatedAt = DateTime.UtcNow,
+                UpdatedAt = DateTime.UtcNow
+            },
+            new ApplicationUser
+            {
+                Id = assigneeXId,
+                Email = "filter-x@example.test",
+                UserName = "filter-x@example.test",
+                NormalizedEmail = "FILTER-X@EXAMPLE.TEST",
+                NormalizedUserName = "FILTER-X@EXAMPLE.TEST",
+                SecurityStamp = Guid.NewGuid().ToString("N"),
+                CreatedAt = DateTime.UtcNow,
+                UpdatedAt = DateTime.UtcNow
+            },
+            new ApplicationUser
+            {
+                Id = assigneeYId,
+                Email = "filter-y@example.test",
+                UserName = "filter-y@example.test",
+                NormalizedEmail = "FILTER-Y@EXAMPLE.TEST",
+                NormalizedUserName = "FILTER-Y@EXAMPLE.TEST",
+                SecurityStamp = Guid.NewGuid().ToString("N"),
+                CreatedAt = DateTime.UtcNow,
+                UpdatedAt = DateTime.UtcNow
+            },
+            new ApplicationUser
+            {
+                Id = assigneeZId,
+                Email = "filter-z@example.test",
+                UserName = "filter-z@example.test",
+                NormalizedEmail = "FILTER-Z@EXAMPLE.TEST",
+                NormalizedUserName = "FILTER-Z@EXAMPLE.TEST",
+                SecurityStamp = Guid.NewGuid().ToString("N"),
+                CreatedAt = DateTime.UtcNow,
+                UpdatedAt = DateTime.UtcNow
+            });
+        await fixture.DbContext.SaveChangesAsync();
+
+        var project = await fixture.ProjectService.CreateAsync(ownerId, "Filter users project", ProjectType.Team);
+        var board = await fixture.BoardService.CreateAsync(project.Id, ownerId, "Main board");
+        var column = await fixture.ColumnService.CreateAsync(board.Id, ownerId, "Todo");
+
+        fixture.DbContext.ProjectMembers.AddRange(
+            new ProjectMember
+            {
+                Id = Guid.NewGuid(),
+                ProjectId = project.Id,
+                UserId = assigneeXId,
+                Role = ProjectRole.Member,
+                JoinedAt = DateTime.UtcNow
+            },
+            new ProjectMember
+            {
+                Id = Guid.NewGuid(),
+                ProjectId = project.Id,
+                UserId = assigneeYId,
+                Role = ProjectRole.Member,
+                JoinedAt = DateTime.UtcNow
+            },
+            new ProjectMember
+            {
+                Id = Guid.NewGuid(),
+                ProjectId = project.Id,
+                UserId = assigneeZId,
+                Role = ProjectRole.Member,
+                JoinedAt = DateTime.UtcNow
+            });
+        await fixture.DbContext.SaveChangesAsync();
+
+        var matchX = await fixture.CardService.CreateAsync(column.Id, ownerId, new CreateCardDto("Match X", null, null));
+        await fixture.CardService.AssignUserAsync(matchX.Id, assigneeXId, ownerId);
+
+        var matchY = await fixture.CardService.CreateAsync(column.Id, ownerId, new CreateCardDto("Match Y", null, null));
+        await fixture.CardService.AssignUserAsync(matchY.Id, assigneeYId, ownerId);
+
+        var matchAny = await fixture.CardService.CreateAsync(column.Id, ownerId, new CreateCardDto("Match any user", null, null));
+        await fixture.CardService.AssignUserAsync(matchAny.Id, assigneeXId, ownerId);
+        await fixture.CardService.AssignUserAsync(matchAny.Id, assigneeYId, ownerId);
+
+        var nonMatch = await fixture.CardService.CreateAsync(column.Id, ownerId, new CreateCardDto("Non-match", null, null));
+        await fixture.CardService.AssignUserAsync(nonMatch.Id, assigneeZId, ownerId);
+
+        _ = await fixture.CardService.CreateAsync(column.Id, ownerId, new CreateCardDto("Unassigned", null, null));
+
+        var filtered = await fixture.CardService.FilterAsync(
+            board.Id,
+            ownerId,
+            new FilterCriteria(Array.Empty<Guid>(), new[] { assigneeXId, assigneeYId }, Array.Empty<Guid>()));
+
+        var resultIds = filtered.Select(x => x.Id).ToHashSet();
+        Assert.Equal(3, filtered.Count);
+        Assert.Contains(matchX.Id, resultIds);
+        Assert.Contains(matchY.Id, resultIds);
+        Assert.Contains(matchAny.Id, resultIds);
+        Assert.DoesNotContain(nonMatch.Id, resultIds);
+    }
+
+    [Fact]
+    public async Task Property_56_FilterByColumnsReturnsOnlyCardsInMatchingColumns()
+    {
+        var fixture = CreateFixture();
+        var ownerId = Guid.NewGuid();
+
+        var project = await fixture.ProjectService.CreateAsync(ownerId, "Filter columns project", ProjectType.Team);
+        var board = await fixture.BoardService.CreateAsync(project.Id, ownerId, "Main board");
+
+        var todo = await fixture.ColumnService.CreateAsync(board.Id, ownerId, "Todo");
+        var doing = await fixture.ColumnService.CreateAsync(board.Id, ownerId, "Doing");
+        var done = await fixture.ColumnService.CreateAsync(board.Id, ownerId, "Done");
+
+        var matchTodo = await fixture.CardService.CreateAsync(todo.Id, ownerId, new CreateCardDto("In todo", null, null));
+        var matchDoing = await fixture.CardService.CreateAsync(doing.Id, ownerId, new CreateCardDto("In doing", null, null));
+        var nonMatch = await fixture.CardService.CreateAsync(done.Id, ownerId, new CreateCardDto("In done", null, null));
+
+        var filtered = await fixture.CardService.FilterAsync(
+            board.Id,
+            ownerId,
+            new FilterCriteria(Array.Empty<Guid>(), Array.Empty<Guid>(), new[] { todo.Id, doing.Id }));
+
+        var resultIds = filtered.Select(x => x.Id).ToHashSet();
+        Assert.Equal(2, filtered.Count);
+        Assert.Contains(matchTodo.Id, resultIds);
+        Assert.Contains(matchDoing.Id, resultIds);
+        Assert.DoesNotContain(nonMatch.Id, resultIds);
+    }
+
+    [Fact]
+    public async Task Property_57_FilterCombinedUsesAndAcrossFilterTypes()
+    {
+        var fixture = CreateFixture();
+        var ownerId = Guid.NewGuid();
+        var assigneeXId = Guid.NewGuid();
+        var assigneeYId = Guid.NewGuid();
+
+        fixture.DbContext.Users.AddRange(
+            new ApplicationUser
+            {
+                Id = ownerId,
+                Email = "filter-owner@example.test",
+                UserName = "filter-owner@example.test",
+                NormalizedEmail = "FILTER-OWNER@EXAMPLE.TEST",
+                NormalizedUserName = "FILTER-OWNER@EXAMPLE.TEST",
+                SecurityStamp = Guid.NewGuid().ToString("N"),
+                CreatedAt = DateTime.UtcNow,
+                UpdatedAt = DateTime.UtcNow
+            },
+            new ApplicationUser
+            {
+                Id = assigneeXId,
+                Email = "filter-x@example.test",
+                UserName = "filter-x@example.test",
+                NormalizedEmail = "FILTER-X@EXAMPLE.TEST",
+                NormalizedUserName = "FILTER-X@EXAMPLE.TEST",
+                SecurityStamp = Guid.NewGuid().ToString("N"),
+                CreatedAt = DateTime.UtcNow,
+                UpdatedAt = DateTime.UtcNow
+            },
+            new ApplicationUser
+            {
+                Id = assigneeYId,
+                Email = "filter-y@example.test",
+                UserName = "filter-y@example.test",
+                NormalizedEmail = "FILTER-Y@EXAMPLE.TEST",
+                NormalizedUserName = "FILTER-Y@EXAMPLE.TEST",
+                SecurityStamp = Guid.NewGuid().ToString("N"),
+                CreatedAt = DateTime.UtcNow,
+                UpdatedAt = DateTime.UtcNow
+            });
+        await fixture.DbContext.SaveChangesAsync();
+
+        var project = await fixture.ProjectService.CreateAsync(ownerId, "Filter combined project", ProjectType.Team);
+        var board = await fixture.BoardService.CreateAsync(project.Id, ownerId, "Main board");
+        var columnTodo = await fixture.ColumnService.CreateAsync(board.Id, ownerId, "Todo");
+        var columnDoing = await fixture.ColumnService.CreateAsync(board.Id, ownerId, "Doing");
+
+        fixture.DbContext.ProjectMembers.AddRange(
+            new ProjectMember
+            {
+                Id = Guid.NewGuid(),
+                ProjectId = project.Id,
+                UserId = assigneeXId,
+                Role = ProjectRole.Member,
+                JoinedAt = DateTime.UtcNow
+            },
+            new ProjectMember
+            {
+                Id = Guid.NewGuid(),
+                ProjectId = project.Id,
+                UserId = assigneeYId,
+                Role = ProjectRole.Member,
+                JoinedAt = DateTime.UtcNow
+            });
+        await fixture.DbContext.SaveChangesAsync();
+
+        var tagA = new Tag
+        {
+            Id = Guid.NewGuid(),
+            ProjectId = project.Id,
+            Name = "A",
+            Color = "#111111",
+            CreatedAt = DateTime.UtcNow
+        };
+        var tagB = new Tag
+        {
+            Id = Guid.NewGuid(),
+            ProjectId = project.Id,
+            Name = "B",
+            Color = "#222222",
+            CreatedAt = DateTime.UtcNow
+        };
+        var tagC = new Tag
+        {
+            Id = Guid.NewGuid(),
+            ProjectId = project.Id,
+            Name = "C",
+            Color = "#333333",
+            CreatedAt = DateTime.UtcNow
+        };
+
+        fixture.DbContext.Tags.AddRange(tagA, tagB, tagC);
+        await fixture.DbContext.SaveChangesAsync();
+
+        var matchByTagA = await fixture.CardService.CreateAsync(columnTodo.Id, ownerId, new CreateCardDto("Match A", null, null));
+        await fixture.CardService.AssignTagAsync(matchByTagA.Id, tagA.Id, ownerId);
+        await fixture.CardService.AssignUserAsync(matchByTagA.Id, assigneeXId, ownerId);
+
+        var matchByTagB = await fixture.CardService.CreateAsync(columnTodo.Id, ownerId, new CreateCardDto("Match B", null, null));
+        await fixture.CardService.AssignTagAsync(matchByTagB.Id, tagB.Id, ownerId);
+        await fixture.CardService.AssignUserAsync(matchByTagB.Id, assigneeXId, ownerId);
+
+        var wrongUser = await fixture.CardService.CreateAsync(columnTodo.Id, ownerId, new CreateCardDto("Wrong user", null, null));
+        await fixture.CardService.AssignTagAsync(wrongUser.Id, tagA.Id, ownerId);
+        await fixture.CardService.AssignUserAsync(wrongUser.Id, assigneeYId, ownerId);
+
+        var wrongTag = await fixture.CardService.CreateAsync(columnTodo.Id, ownerId, new CreateCardDto("Wrong tag", null, null));
+        await fixture.CardService.AssignTagAsync(wrongTag.Id, tagC.Id, ownerId);
+        await fixture.CardService.AssignUserAsync(wrongTag.Id, assigneeXId, ownerId);
+
+        var wrongColumn = await fixture.CardService.CreateAsync(columnDoing.Id, ownerId, new CreateCardDto("Wrong column", null, null));
+        await fixture.CardService.AssignTagAsync(wrongColumn.Id, tagA.Id, ownerId);
+        await fixture.CardService.AssignUserAsync(wrongColumn.Id, assigneeXId, ownerId);
+
+        var filtered = await fixture.CardService.FilterAsync(
+            board.Id,
+            ownerId,
+            new FilterCriteria(
+                new[] { tagA.Id, tagB.Id },
+                new[] { assigneeXId },
+                new[] { columnTodo.Id }));
+
+        var resultIds = filtered.Select(x => x.Id).ToHashSet();
+
+        Assert.Equal(2, filtered.Count);
+        Assert.Contains(matchByTagA.Id, resultIds);
+        Assert.Contains(matchByTagB.Id, resultIds);
+        Assert.DoesNotContain(wrongUser.Id, resultIds);
+        Assert.DoesNotContain(wrongTag.Id, resultIds);
+        Assert.DoesNotContain(wrongColumn.Id, resultIds);
+    }
+
+    [Fact]
+    public async Task Property_58_ClearFiltersReturnsAllBoardCardsRoundTrip()
+    {
+        var fixture = CreateFixture();
+        var ownerId = Guid.NewGuid();
+        var assigneeId = Guid.NewGuid();
+
+        fixture.DbContext.Users.AddRange(
+            new ApplicationUser
+            {
+                Id = ownerId,
+                Email = "clear-owner@example.test",
+                UserName = "clear-owner@example.test",
+                NormalizedEmail = "CLEAR-OWNER@EXAMPLE.TEST",
+                NormalizedUserName = "CLEAR-OWNER@EXAMPLE.TEST",
+                SecurityStamp = Guid.NewGuid().ToString("N"),
+                CreatedAt = DateTime.UtcNow,
+                UpdatedAt = DateTime.UtcNow
+            },
+            new ApplicationUser
+            {
+                Id = assigneeId,
+                Email = "clear-assignee@example.test",
+                UserName = "clear-assignee@example.test",
+                NormalizedEmail = "CLEAR-ASSIGNEE@EXAMPLE.TEST",
+                NormalizedUserName = "CLEAR-ASSIGNEE@EXAMPLE.TEST",
+                SecurityStamp = Guid.NewGuid().ToString("N"),
+                CreatedAt = DateTime.UtcNow,
+                UpdatedAt = DateTime.UtcNow
+            });
+        await fixture.DbContext.SaveChangesAsync();
+
+        var project = await fixture.ProjectService.CreateAsync(ownerId, "Filter clear project", ProjectType.Team);
+        var board = await fixture.BoardService.CreateAsync(project.Id, ownerId, "Main board");
+        var otherBoard = await fixture.BoardService.CreateAsync(project.Id, ownerId, "Other board");
+        var todo = await fixture.ColumnService.CreateAsync(board.Id, ownerId, "Todo");
+        var doing = await fixture.ColumnService.CreateAsync(board.Id, ownerId, "Doing");
+        var otherColumn = await fixture.ColumnService.CreateAsync(otherBoard.Id, ownerId, "Other");
+
+        fixture.DbContext.ProjectMembers.Add(new ProjectMember
+        {
+            Id = Guid.NewGuid(),
+            ProjectId = project.Id,
+            UserId = assigneeId,
+            Role = ProjectRole.Member,
+            JoinedAt = DateTime.UtcNow
+        });
+
+        var tag = new Tag
+        {
+            Id = Guid.NewGuid(),
+            ProjectId = project.Id,
+            Name = "filter-tag",
+            Color = "#123456",
+            CreatedAt = DateTime.UtcNow
+        };
+        fixture.DbContext.Tags.Add(tag);
+        await fixture.DbContext.SaveChangesAsync();
+
+        var match = await fixture.CardService.CreateAsync(todo.Id, ownerId, new CreateCardDto("Match", null, null));
+        await fixture.CardService.AssignTagAsync(match.Id, tag.Id, ownerId);
+        await fixture.CardService.AssignUserAsync(match.Id, assigneeId, ownerId);
+
+        var boardOnlyA = await fixture.CardService.CreateAsync(todo.Id, ownerId, new CreateCardDto("Board only A", null, null));
+        var boardOnlyB = await fixture.CardService.CreateAsync(doing.Id, ownerId, new CreateCardDto("Board only B", null, null));
+        _ = await fixture.CardService.CreateAsync(otherColumn.Id, ownerId, new CreateCardDto("Outside board", null, null));
+
+        var filtered = await fixture.CardService.FilterAsync(
+            board.Id,
+            ownerId,
+            new FilterCriteria(new[] { tag.Id }, new[] { assigneeId }, new[] { todo.Id }));
+
+        var cleared = await fixture.CardService.FilterAsync(
+            board.Id,
+            ownerId,
+            new FilterCriteria(Array.Empty<Guid>(), Array.Empty<Guid>(), Array.Empty<Guid>()));
+
+        var filteredIds = filtered.Select(x => x.Id).ToHashSet();
+        var clearedIds = cleared.Select(x => x.Id).ToHashSet();
+
+        Assert.Single(filtered);
+        Assert.Contains(match.Id, filteredIds);
+
+        Assert.Equal(3, cleared.Count);
+        Assert.Contains(match.Id, clearedIds);
+        Assert.Contains(boardOnlyA.Id, clearedIds);
+        Assert.Contains(boardOnlyB.Id, clearedIds);
+        Assert.True(filteredIds.IsSubsetOf(clearedIds));
+    }
+
     private static TestFixture CreateFixture()
     {
         var options = new DbContextOptionsBuilder<ApplicationDbContext>()
