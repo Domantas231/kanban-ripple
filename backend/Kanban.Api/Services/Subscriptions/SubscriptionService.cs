@@ -64,6 +64,22 @@ public sealed class SubscriptionService : ISubscriptionService
         await _dbContext.SaveChangesAsync();
     }
 
+    public async Task UnsubscribeByIdAsync(Guid userId, Guid subscriptionId)
+    {
+        EnsureNonEmptySubscriptionId(subscriptionId);
+
+        var subscription = await _dbContext.Subscriptions
+            .FirstOrDefaultAsync(x => x.Id == subscriptionId && x.UserId == userId);
+
+        if (subscription is null)
+        {
+            throw new KeyNotFoundException("Subscription not found.");
+        }
+
+        _dbContext.Subscriptions.Remove(subscription);
+        await _dbContext.SaveChangesAsync();
+    }
+
     public async Task<IReadOnlyList<Guid>> GetSubscriberIdsAsync(EntityType entityType, Guid entityId)
     {
         EnsureNonEmptyEntityId(entityId);
@@ -75,6 +91,20 @@ public sealed class SubscriptionService : ISubscriptionService
             .ThenBy(x => x.Id)
             .Select(x => x.UserId)
             .ToListAsync();
+    }
+
+    public async Task<IReadOnlyList<Guid>> GetSubscriberIdsAsync(Guid userId, EntityType entityType, Guid entityId)
+    {
+        EnsureNonEmptyEntityId(entityId);
+
+        var projectId = await ResolveProjectIdAsync(entityType, entityId);
+        var hasAccess = await CheckProjectAccessAsync(projectId, userId, ProjectRole.Viewer);
+        if (!hasAccess)
+        {
+            throw new UnauthorizedAccessException("Forbidden.");
+        }
+
+        return await GetSubscriberIdsAsync(entityType, entityId);
     }
 
     public async Task<bool> IsSubscribedAsync(Guid userId, EntityType entityType, Guid entityId)
@@ -141,6 +171,14 @@ public sealed class SubscriptionService : ISubscriptionService
         if (entityId == Guid.Empty)
         {
             throw new InvalidOperationException("Entity ID is required.");
+        }
+    }
+
+    private static void EnsureNonEmptySubscriptionId(Guid subscriptionId)
+    {
+        if (subscriptionId == Guid.Empty)
+        {
+            throw new InvalidOperationException("Subscription ID is required.");
         }
     }
 }

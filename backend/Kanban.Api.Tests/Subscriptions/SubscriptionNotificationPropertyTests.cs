@@ -209,10 +209,20 @@ public sealed class SubscriptionNotificationPropertyTests
             throw new NotSupportedException();
         }
 
+        public Task UnsubscribeByIdAsync(Guid userId, Guid subscriptionId)
+        {
+            throw new NotSupportedException();
+        }
+
         public Task<IReadOnlyList<Guid>> GetSubscriberIdsAsync(EntityType entityType, Guid entityId)
         {
             GetSubscriberCalls.Add((entityType, entityId));
             return Task.FromResult(SubscriberIdsToReturn);
+        }
+
+        public Task<IReadOnlyList<Guid>> GetSubscriberIdsAsync(Guid userId, EntityType entityType, Guid entityId)
+        {
+            return GetSubscriberIdsAsync(entityType, entityId);
         }
 
         public Task<bool> IsSubscribedAsync(Guid userId, EntityType entityType, Guid entityId)
