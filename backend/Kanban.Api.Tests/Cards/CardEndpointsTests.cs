@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Json;
 using Kanban.Api.Models;
+using Kanban.Api.Services.Projects;
 using Kanban.Api.Tests.Projects;
 using Microsoft.EntityFrameworkCore;
 
@@ -269,6 +270,120 @@ public sealed class CardEndpointsTests : IClassFixture<ProjectsApiFactory>
 
         var deleteResponse = await viewerClient.DeleteAsync($"/api/cards/{card.Id}");
         Assert.Equal(HttpStatusCode.Forbidden, deleteResponse.StatusCode);
+    }
+
+    [Fact]
+    public async Task Search_WithoutQuery_ReturnsBadRequest()
+    {
+        var userId = await _factory.CreateUserAsync(UniqueEmail("card-search-required"));
+        using var client = CreateClient(userId);
+
+        var project = await CreateProjectAsync(client, "Search Required Project");
+
+        var response = await client.GetAsync($"/api/projects/{project.Id}/cards/search");
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Search_ViewerCanAccess_AndGetsScopedResults()
+    {
+        var ownerUserId = await _factory.CreateUserAsync(UniqueEmail("card-search-owner"));
+        using var ownerClient = CreateClient(ownerUserId);
+
+        var project = await CreateProjectAsync(ownerClient, "Card Search Project");
+        var board = await CreateBoardAsync(ownerClient, project.Id, "Search Board");
+        var column = await CreateColumnAsync(ownerClient, board.Id, "Search Column");
+        await CreateCardAsync(ownerClient, column.Id, "Kanban Search Hit");
+
+        var viewerUserId = await _factory.CreateUserAsync(UniqueEmail("card-search-viewer"));
+        using var viewerClient = CreateClient(viewerUserId);
+
+        await _factory.WithDbContextAsync(async db =>
+        {
+            db.ProjectMembers.Add(new ProjectMember
+            {
+                Id = Guid.NewGuid(),
+                ProjectId = project.Id,
+                UserId = viewerUserId,
+                Role = ProjectRole.Viewer,
+                JoinedAt = DateTime.UtcNow
+            });
+
+            await db.SaveChangesAsync();
+        });
+
+        var response = await viewerClient.GetAsync($"/api/projects/{project.Id}/cards/search?q=kan");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        var payload = await response.Content.ReadFromJsonAsync<PaginatedResponse<Card>>();
+        Assert.NotNull(payload);
+        Assert.Single(payload!.Items);
+        Assert.Contains(payload.Items, x => x.Title.Contains("Kan", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public async Task Filter_WithoutCriteria_ReturnsAllBoardCards()
+    {
+        var userId = await _factory.CreateUserAsync(UniqueEmail("card-filter-all"));
+        using var client = CreateClient(userId);
+
+        var project = await CreateProjectAsync(client, "Filter All Project");
+        var board = await CreateBoardAsync(client, project.Id, "Filter Board");
+        var firstColumn = await CreateColumnAsync(client, board.Id, "Todo");
+        var secondColumn = await CreateColumnAsync(client, board.Id, "Done");
+
+        var firstCard = await CreateCardAsync(client, firstColumn.Id, "First Card");
+        var secondCard = await CreateCardAsync(client, secondColumn.Id, "Second Card");
+
+        var response = await client.GetAsync($"/api/boards/{board.Id}/cards/filter");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        var payload = await response.Content.ReadFromJsonAsync<List<Card>>();
+        Assert.NotNull(payload);
+        var ids = payload!.Select(x => x.Id).ToHashSet();
+        Assert.Contains(firstCard.Id, ids);
+        Assert.Contains(secondCard.Id, ids);
+    }
+
+    [Fact]
+    public async Task Filter_ByColumnIds_ReturnsMatchingCardsOnly()
+    {
+        var userId = await _factory.CreateUserAsync(UniqueEmail("card-filter-column"));
+        using var client = CreateClient(userId);
+
+        var project = await CreateProjectAsync(client, "Filter Column Project");
+        var board = await CreateBoardAsync(client, project.Id, "Filter Board");
+        var includedColumn = await CreateColumnAsync(client, board.Id, "Included");
+        var excludedColumn = await CreateColumnAsync(client, board.Id, "Excluded");
+
+        var includedCard = await CreateCardAsync(client, includedColumn.Id, "Included Card");
+        await CreateCardAsync(client, excludedColumn.Id, "Excluded Card");
+
+        var response = await client.GetAsync($"/api/boards/{board.Id}/cards/filter?columnIds={includedColumn.Id}");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        var payload = await response.Content.ReadFromJsonAsync<List<Card>>();
+        Assert.NotNull(payload);
+        var single = Assert.Single(payload!);
+        Assert.Equal(includedCard.Id, single.Id);
+    }
+
+    [Fact]
+    public async Task Filter_WithInvalidGuid_ReturnsBadRequest()
+    {
+        var userId = await _factory.CreateUserAsync(UniqueEmail("card-filter-bad-guid"));
+        using var client = CreateClient(userId);
+
+        var project = await CreateProjectAsync(client, "Filter Invalid Guid Project");
+        var board = await CreateBoardAsync(client, project.Id, "Filter Board");
+
+        var response = await client.GetAsync($"/api/boards/{board.Id}/cards/filter?tagIds=not-a-guid");
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
     }
 
     private HttpClient CreateClient(Guid userId)

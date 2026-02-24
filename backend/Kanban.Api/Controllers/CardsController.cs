@@ -47,6 +47,73 @@ public sealed class CardsController : ControllerBase
         }
     }
 
+    [HttpGet("projects/{projectId:guid}/cards/search")]
+    public async Task<ActionResult<PaginatedResponse<Card>>> Search(
+        Guid projectId,
+        [FromQuery] string? q,
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 25)
+    {
+        if (!TryGetUserId(out var userId))
+        {
+            return Unauthorized(new { message = "Invalid authenticated user." });
+        }
+
+        if (string.IsNullOrWhiteSpace(q))
+        {
+            return BadRequest(new { message = "Query parameter 'q' is required." });
+        }
+
+        try
+        {
+            var result = await _cardService.SearchAsync(projectId, userId, q, page, pageSize);
+            return Ok(result);
+        }
+        catch (KeyNotFoundException ex)
+        {
+            return NotFound(new { message = ex.Message });
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, new { message = ex.Message });
+        }
+    }
+
+    [HttpGet("boards/{boardId:guid}/cards/filter")]
+    public async Task<ActionResult<IReadOnlyList<Card>>> Filter(
+        Guid boardId,
+        [FromQuery] string? tagIds,
+        [FromQuery] string? userIds,
+        [FromQuery] string? columnIds)
+    {
+        if (!TryGetUserId(out var userId))
+        {
+            return Unauthorized(new { message = "Invalid authenticated user." });
+        }
+
+        if (!TryParseGuidList(tagIds, out var parsedTagIds)
+            || !TryParseGuidList(userIds, out var parsedUserIds)
+            || !TryParseGuidList(columnIds, out var parsedColumnIds))
+        {
+            return BadRequest(new { message = "Filter parameters must contain valid GUID values." });
+        }
+
+        try
+        {
+            var filters = new FilterCriteria(parsedTagIds, parsedUserIds, parsedColumnIds);
+            var result = await _cardService.FilterAsync(boardId, userId, filters);
+            return Ok(result);
+        }
+        catch (KeyNotFoundException ex)
+        {
+            return NotFound(new { message = ex.Message });
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, new { message = ex.Message });
+        }
+    }
+
     [HttpPost("columns/{columnId:guid}/cards")]
     public async Task<ActionResult<Card>> Create(Guid columnId, [FromBody] CreateCardRequest request)
     {
@@ -229,5 +296,38 @@ public sealed class CardsController : ControllerBase
             ?? User.FindFirstValue(JwtRegisteredClaimNames.Sub);
 
         return Guid.TryParse(userIdValue, out userId);
+    }
+
+    private static bool TryParseGuidList(string? value, out IReadOnlyCollection<Guid>? parsedValues)
+    {
+        parsedValues = null;
+
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return true;
+        }
+
+        var items = value
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+        if (items.Length == 0)
+        {
+            return true;
+        }
+
+        var parsed = new List<Guid>(items.Length);
+        foreach (var item in items)
+        {
+            if (!Guid.TryParse(item, out var id))
+            {
+                parsedValues = null;
+                return false;
+            }
+
+            parsed.Add(id);
+        }
+
+        parsedValues = parsed;
+        return true;
     }
 }
