@@ -2,6 +2,7 @@ using System.Data;
 using Kanban.Api.Data;
 using Kanban.Api.Models;
 using Kanban.Api.Services;
+using Kanban.Api.Services.Projects;
 using Microsoft.EntityFrameworkCore;
 
 namespace Kanban.Api.Services.Cards;
@@ -9,12 +10,61 @@ namespace Kanban.Api.Services.Cards;
 public sealed class CardService : ICardService
 {
     private const int PositionGap = 1000;
+    private const int DefaultBoardCardsPageSize = 50;
+    private const int MaxBoardCardsPageSize = 50;
+    private const int DefaultArchivedCardsPageSize = 25;
+    private const int MaxArchivedCardsPageSize = 25;
 
     private readonly ApplicationDbContext _dbContext;
 
     public CardService(ApplicationDbContext dbContext)
     {
         _dbContext = dbContext;
+    }
+
+    public async Task<PaginatedResponse<Card>> ListByBoardAsync(Guid boardId, Guid userId, int page, int pageSize)
+    {
+        var boardExists = await _dbContext.Boards
+            .AsNoTracking()
+            .AnyAsync(x => x.Id == boardId);
+
+        if (!boardExists)
+        {
+            throw new KeyNotFoundException("Board not found.");
+        }
+
+        var boardProjectId = await _dbContext.Boards
+            .AsNoTracking()
+            .Where(x => x.Id == boardId)
+            .Select(x => x.ProjectId)
+            .FirstAsync();
+
+        var hasAccess = await CheckProjectAccessAsync(boardProjectId, userId, ProjectRole.Viewer);
+        if (!hasAccess)
+        {
+            throw new UnauthorizedAccessException("Forbidden.");
+        }
+
+        var effectivePage = page < 1 ? 1 : page;
+        var effectivePageSize = pageSize <= 0
+            ? DefaultBoardCardsPageSize
+            : Math.Min(pageSize, MaxBoardCardsPageSize);
+
+        var query = _dbContext.Cards
+            .AsNoTracking()
+            .Where(x => x.Column.BoardId == boardId);
+
+        var totalCount = await query.CountAsync();
+
+        var items = await query
+            .OrderBy(x => x.Column.Position)
+            .ThenBy(x => x.Position)
+            .ThenBy(x => x.Id)
+            .Skip((effectivePage - 1) * effectivePageSize)
+            .Take(effectivePageSize)
+            .ToListAsync();
+
+        return new PaginatedResponse<Card>(items, effectivePage, effectivePageSize, totalCount);
     }
 
     public async Task<Card> CreateAsync(Guid columnId, Guid userId, CreateCardDto data)
@@ -511,6 +561,38 @@ public sealed class CardService : ICardService
         {
             await transaction.CommitAsync();
         }
+    }
+
+    public async Task<PaginatedResponse<Card>> ListArchivedAsync(Guid userId, int page, int pageSize)
+    {
+        var effectivePage = page < 1 ? 1 : page;
+        var effectivePageSize = pageSize <= 0
+            ? DefaultArchivedCardsPageSize
+            : Math.Min(pageSize, MaxArchivedCardsPageSize);
+
+        var query =
+            from card in _dbContext.Cards.IgnoreQueryFilters().AsNoTracking()
+            join column in _dbContext.Columns.IgnoreQueryFilters().AsNoTracking()
+                on card.ColumnId equals column.Id
+            join board in _dbContext.Boards.IgnoreQueryFilters().AsNoTracking()
+                on column.BoardId equals board.Id
+            where card.DeletedAt != null
+            where _dbContext.ProjectMembers.Any(pm =>
+                pm.ProjectId == board.ProjectId
+                && pm.UserId == userId
+                && pm.Role <= ProjectRole.Viewer)
+            select card;
+
+        var totalCount = await query.CountAsync();
+
+        var items = await query
+            .OrderByDescending(x => x.DeletedAt)
+            .ThenBy(x => x.Id)
+            .Skip((effectivePage - 1) * effectivePageSize)
+            .Take(effectivePageSize)
+            .ToListAsync();
+
+        return new PaginatedResponse<Card>(items, effectivePage, effectivePageSize, totalCount);
     }
 
     private async Task<bool> CheckProjectAccessAsync(Guid projectId, Guid userId, ProjectRole minimumRole)
