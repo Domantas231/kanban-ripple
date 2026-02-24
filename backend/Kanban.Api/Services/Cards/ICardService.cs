@@ -14,6 +14,10 @@ public interface ICardService
     Task UnassignTagAsync(Guid cardId, Guid tagId, Guid userId);
     Task AssignUserAsync(Guid cardId, Guid assigneeUserId, Guid userId);
     Task UnassignUserAsync(Guid cardId, Guid assigneeUserId, Guid userId);
+    Task<Subtask> CreateSubtaskAsync(Guid cardId, Guid userId, CreateSubtaskDto data);
+    Task<Subtask> UpdateSubtaskAsync(Guid subtaskId, Guid userId, UpdateSubtaskDto data);
+    Task DeleteSubtaskAsync(Guid subtaskId, Guid userId);
+    Task<SubtaskCountsDto> GetSubtaskCountsAsync(Guid cardId, Guid userId);
     Task ArchiveAsync(Guid cardId, Guid userId);
     Task RestoreAsync(Guid cardId, Guid userId);
     Task<PaginatedResponse<Card>> ListArchivedAsync(Guid userId, int page, int pageSize);

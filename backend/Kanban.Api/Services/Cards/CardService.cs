@@ -454,6 +454,154 @@ public sealed class CardService : ICardService
         await _dbContext.SaveChangesAsync();
     }
 
+    public async Task<Subtask> CreateSubtaskAsync(Guid cardId, Guid userId, CreateSubtaskDto data)
+    {
+        if (string.IsNullOrWhiteSpace(data.Description))
+        {
+            throw new InvalidOperationException("Subtask description is required.");
+        }
+
+        var card = await _dbContext.Cards
+            .Include(x => x.Column)
+                .ThenInclude(x => x.Board)
+            .FirstOrDefaultAsync(x => x.Id == cardId);
+
+        if (card is null)
+        {
+            throw new KeyNotFoundException("Card not found.");
+        }
+
+        var hasAccess = await CheckProjectAccessAsync(card.Column.Board.ProjectId, userId, ProjectRole.Member);
+        if (!hasAccess)
+        {
+            throw new UnauthorizedAccessException("Forbidden.");
+        }
+
+        var maxPosition = await _dbContext.Subtasks
+            .Where(x => x.CardId == cardId)
+            .Select(x => (int?)x.Position)
+            .MaxAsync();
+
+        var now = DateTime.UtcNow;
+        var subtask = new Subtask
+        {
+            Id = Guid.NewGuid(),
+            CardId = cardId,
+            Description = data.Description.Trim(),
+            Completed = false,
+            Position = (maxPosition ?? 0) + PositionGap,
+            CreatedAt = now,
+            UpdatedAt = now
+        };
+
+        _dbContext.Subtasks.Add(subtask);
+        card.UpdatedAt = now;
+
+        await _dbContext.SaveChangesAsync();
+        return subtask;
+    }
+
+    public async Task<Subtask> UpdateSubtaskAsync(Guid subtaskId, Guid userId, UpdateSubtaskDto data)
+    {
+        if (data.Description is null && data.Completed is null)
+        {
+            throw new InvalidOperationException("At least one subtask field must be provided.");
+        }
+
+        if (data.Description is not null && string.IsNullOrWhiteSpace(data.Description))
+        {
+            throw new InvalidOperationException("Subtask description is required.");
+        }
+
+        var subtask = await _dbContext.Subtasks
+            .Include(x => x.Card)
+                .ThenInclude(x => x.Column)
+                    .ThenInclude(x => x.Board)
+            .FirstOrDefaultAsync(x => x.Id == subtaskId);
+
+        if (subtask is null)
+        {
+            throw new KeyNotFoundException("Subtask not found.");
+        }
+
+        var hasAccess = await CheckProjectAccessAsync(subtask.Card.Column.Board.ProjectId, userId, ProjectRole.Member);
+        if (!hasAccess)
+        {
+            throw new UnauthorizedAccessException("Forbidden.");
+        }
+
+        if (data.Description is not null)
+        {
+            subtask.Description = data.Description.Trim();
+        }
+
+        if (data.Completed.HasValue)
+        {
+            subtask.Completed = data.Completed.Value;
+        }
+
+        var now = DateTime.UtcNow;
+        subtask.UpdatedAt = now;
+        subtask.Card.UpdatedAt = now;
+
+        await _dbContext.SaveChangesAsync();
+        return subtask;
+    }
+
+    public async Task DeleteSubtaskAsync(Guid subtaskId, Guid userId)
+    {
+        var subtask = await _dbContext.Subtasks
+            .Include(x => x.Card)
+                .ThenInclude(x => x.Column)
+                    .ThenInclude(x => x.Board)
+            .FirstOrDefaultAsync(x => x.Id == subtaskId);
+
+        if (subtask is null)
+        {
+            throw new KeyNotFoundException("Subtask not found.");
+        }
+
+        var hasAccess = await CheckProjectAccessAsync(subtask.Card.Column.Board.ProjectId, userId, ProjectRole.Member);
+        if (!hasAccess)
+        {
+            throw new UnauthorizedAccessException("Forbidden.");
+        }
+
+        subtask.Card.UpdatedAt = DateTime.UtcNow;
+        _dbContext.Subtasks.Remove(subtask);
+        await _dbContext.SaveChangesAsync();
+    }
+
+    public async Task<SubtaskCountsDto> GetSubtaskCountsAsync(Guid cardId, Guid userId)
+    {
+        var card = await _dbContext.Cards
+            .AsNoTracking()
+            .Include(x => x.Column)
+                .ThenInclude(x => x.Board)
+            .FirstOrDefaultAsync(x => x.Id == cardId);
+
+        if (card is null)
+        {
+            throw new KeyNotFoundException("Card not found.");
+        }
+
+        var hasAccess = await CheckProjectAccessAsync(card.Column.Board.ProjectId, userId, ProjectRole.Viewer);
+        if (!hasAccess)
+        {
+            throw new UnauthorizedAccessException("Forbidden.");
+        }
+
+        var total = await _dbContext.Subtasks
+            .Where(x => x.CardId == cardId)
+            .CountAsync();
+
+        var completed = await _dbContext.Subtasks
+            .Where(x => x.CardId == cardId && x.Completed)
+            .CountAsync();
+
+        return new SubtaskCountsDto(completed, total);
+    }
+
     public async Task ArchiveAsync(Guid cardId, Guid userId)
     {
         var card = await _dbContext.Cards

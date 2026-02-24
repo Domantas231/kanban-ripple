@@ -542,6 +542,123 @@ public class CardServicePropertyTests
         Assert.Equal(2000, moved.Position);
     }
 
+    [Fact]
+    public async Task Property_48_CreateSubtaskWithDescriptionPersistsAssociation()
+    {
+        var fixture = CreateFixture();
+        var ownerId = Guid.NewGuid();
+        var project = await fixture.ProjectService.CreateAsync(ownerId, "Subtask creation project", ProjectType.Team);
+        var board = await fixture.BoardService.CreateAsync(project.Id, ownerId, "Main board");
+        var column = await fixture.ColumnService.CreateAsync(board.Id, ownerId, "Todo");
+        var card = await fixture.CardService.CreateAsync(column.Id, ownerId, new CreateCardDto("Card", null, null));
+
+        var created = await fixture.CardService.CreateSubtaskAsync(
+            card.Id,
+            ownerId,
+            new CreateSubtaskDto("  Write tests  "));
+
+        var persisted = await fixture.DbContext.Subtasks
+            .SingleAsync(x => x.Id == created.Id);
+
+        Assert.Equal(card.Id, created.CardId);
+        Assert.Equal("Write tests", created.Description);
+        Assert.Equal(card.Id, persisted.CardId);
+        Assert.False(created.Completed);
+    }
+
+    [Fact]
+    public async Task Property_49_ToggleCompletedUpdatesAndCanRevert()
+    {
+        var fixture = CreateFixture();
+        var ownerId = Guid.NewGuid();
+        var project = await fixture.ProjectService.CreateAsync(ownerId, "Subtask update project", ProjectType.Team);
+        var board = await fixture.BoardService.CreateAsync(project.Id, ownerId, "Main board");
+        var column = await fixture.ColumnService.CreateAsync(board.Id, ownerId, "Todo");
+        var card = await fixture.CardService.CreateAsync(column.Id, ownerId, new CreateCardDto("Card", null, null));
+
+        var created = await fixture.CardService.CreateSubtaskAsync(
+            card.Id,
+            ownerId,
+            new CreateSubtaskDto("Draft doc"));
+
+        await Task.Delay(10);
+
+        var toggledOn = await fixture.CardService.UpdateSubtaskAsync(
+            created.Id,
+            ownerId,
+            new UpdateSubtaskDto("Final doc", true));
+
+        await Task.Delay(10);
+
+        var toggledOff = await fixture.CardService.UpdateSubtaskAsync(
+            created.Id,
+            ownerId,
+            new UpdateSubtaskDto(null, false));
+
+        var persisted = await fixture.DbContext.Subtasks
+            .SingleAsync(x => x.Id == created.Id);
+
+        Assert.Equal("Final doc", toggledOn.Description);
+        Assert.True(toggledOn.Completed);
+        Assert.True(toggledOn.UpdatedAt > created.UpdatedAt);
+        Assert.False(toggledOff.Completed);
+        Assert.True(toggledOff.UpdatedAt > toggledOn.UpdatedAt);
+        Assert.Equal("Final doc", persisted.Description);
+        Assert.False(persisted.Completed);
+    }
+
+    [Fact]
+    public async Task Property_50_DeleteSubtaskRemovesItFromQueries()
+    {
+        var fixture = CreateFixture();
+        var ownerId = Guid.NewGuid();
+        var project = await fixture.ProjectService.CreateAsync(ownerId, "Subtask delete project", ProjectType.Team);
+        var board = await fixture.BoardService.CreateAsync(project.Id, ownerId, "Main board");
+        var column = await fixture.ColumnService.CreateAsync(board.Id, ownerId, "Todo");
+        var card = await fixture.CardService.CreateAsync(column.Id, ownerId, new CreateCardDto("Card", null, null));
+
+        var created = await fixture.CardService.CreateSubtaskAsync(
+            card.Id,
+            ownerId,
+            new CreateSubtaskDto("Delete me"));
+
+        var beforeDelete = await fixture.CardService.GetByIdAsync(card.Id, ownerId);
+        Assert.Contains(beforeDelete.Subtasks, x => x.Id == created.Id);
+
+        await fixture.CardService.DeleteSubtaskAsync(created.Id, ownerId);
+
+        var afterDelete = await fixture.CardService.GetByIdAsync(card.Id, ownerId);
+        var counts = await fixture.CardService.GetSubtaskCountsAsync(card.Id, ownerId);
+
+        Assert.False(await fixture.DbContext.Subtasks.IgnoreQueryFilters().AnyAsync(x => x.Id == created.Id));
+        Assert.DoesNotContain(afterDelete.Subtasks, x => x.Id == created.Id);
+        Assert.Equal(0, counts.Completed);
+        Assert.Equal(0, counts.Total);
+    }
+
+    [Fact]
+    public async Task Property_51_GetSubtaskCountsReturnsCompletedAndTotal()
+    {
+        var fixture = CreateFixture();
+        var ownerId = Guid.NewGuid();
+        var project = await fixture.ProjectService.CreateAsync(ownerId, "Subtask count project", ProjectType.Team);
+        var board = await fixture.BoardService.CreateAsync(project.Id, ownerId, "Main board");
+        var column = await fixture.ColumnService.CreateAsync(board.Id, ownerId, "Todo");
+        var card = await fixture.CardService.CreateAsync(column.Id, ownerId, new CreateCardDto("Card", null, null));
+
+        var first = await fixture.CardService.CreateSubtaskAsync(card.Id, ownerId, new CreateSubtaskDto("One"));
+        var second = await fixture.CardService.CreateSubtaskAsync(card.Id, ownerId, new CreateSubtaskDto("Two"));
+        await fixture.CardService.CreateSubtaskAsync(card.Id, ownerId, new CreateSubtaskDto("Three"));
+
+        await fixture.CardService.UpdateSubtaskAsync(first.Id, ownerId, new UpdateSubtaskDto(null, true));
+        await fixture.CardService.UpdateSubtaskAsync(second.Id, ownerId, new UpdateSubtaskDto(null, true));
+
+        var counts = await fixture.CardService.GetSubtaskCountsAsync(card.Id, ownerId);
+
+        Assert.Equal(2, counts.Completed);
+        Assert.Equal(3, counts.Total);
+    }
+
     private static TestFixture CreateFixture()
     {
         var options = new DbContextOptionsBuilder<ApplicationDbContext>()
