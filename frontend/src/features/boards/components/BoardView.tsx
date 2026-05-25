@@ -421,14 +421,14 @@ export function BoardView({ projectId, boardId, search }: BoardViewProps) {
     const { body } = document
     const prevUserSelect = body.style.userSelect
     const prevWebkitUserSelect = body.style.webkitUserSelect
-    const prevTouchCallout = body.style.webkitTouchCallout
+    const prevTouchCallout = body.style.getPropertyValue('-webkit-touch-callout')
     body.style.userSelect = 'none'
     body.style.webkitUserSelect = 'none'
-    body.style.webkitTouchCallout = 'none'
+    body.style.setProperty('-webkit-touch-callout', 'none')
     return () => {
       body.style.userSelect = prevUserSelect
       body.style.webkitUserSelect = prevWebkitUserSelect
-      body.style.webkitTouchCallout = prevTouchCallout
+      body.style.setProperty('-webkit-touch-callout', prevTouchCallout)
     }
   }, [isDragActive])
   const [plannerDropPreview, setPlannerDropPreview] = useState<{

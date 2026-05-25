@@ -287,3 +287,8 @@ thumb
 sketch
 
 # End of https://www.toptal.com/developers/gitignore/api/aspnetcore,react
+
+# build files
+*.zip
+frontend/dist
+.env.*
