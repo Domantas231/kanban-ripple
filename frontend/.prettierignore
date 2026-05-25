@@ -1,0 +1,27 @@
+# Build output
+dist
+dist-ssr
+build
+
+# Dependencies
+node_modules
+
+# Generated files
+src/routeTree.gen.ts
+*.gen.ts
+
+# Lockfiles
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+
+# Caches
+.vite
+.tanstack
+.cache
+
+# Coverage
+coverage
+
+# Env
+*.local

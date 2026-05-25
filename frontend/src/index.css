@@ -1,0 +1,24 @@
+html,
+body,
+#root {
+  width: 100%;
+  min-height: 100%;
+}
+
+/* Hide scrollbars globally while keeping scroll functionality */
+* {
+  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none; /* IE/Edge */
+}
+
+*::-webkit-scrollbar {
+  display: none; /* Chrome, Safari, Opera */
+}
+
+/* Google Picker must render above MUI Dialog (z-index 1300) */
+.picker-dialog-bg {
+  z-index: 1400 !important;
+}
+.picker-dialog {
+  z-index: 1401 !important;
+}

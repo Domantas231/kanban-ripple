@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json.schemastore.org/prettierrc",
+  "semi": false,
+  "singleQuote": true,
+  "jsxSingleQuote": false,
+  "trailingComma": "all",
+  "printWidth": 100,
+  "tabWidth": 2,
+  "useTabs": false,
+  "arrowParens": "always",
+  "bracketSpacing": true,
+  "bracketSameLine": false,
+  "endOfLine": "lf",
+  "quoteProps": "as-needed",
+  "overrides": [
+    { "files": ["*.json", "*.jsonc"], "options": { "trailingComma": "none" } },
+    { "files": "*.md", "options": { "proseWrap": "always", "printWidth": 80 } }
+  ]
+}
