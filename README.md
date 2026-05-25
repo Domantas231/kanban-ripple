@@ -29,9 +29,9 @@ This starts:
 ## 2. Run the backend
 
 ```bash
-cd backend
+cd backend/Kanban.Api/
 dotnet restore
-dotnet run --project Kanban.Api/Kanban.Api.csproj
+dotnet run
 ```
 
 The API will be available at <http://localhost:5231>. 
