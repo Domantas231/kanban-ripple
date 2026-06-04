@@ -9,8 +9,10 @@ import Snackbar from '@mui/material/Snackbar'
 import Stack from '@mui/material/Stack'
 import Typography from '@mui/material/Typography'
 import SyncProblemOutlinedIcon from '@mui/icons-material/SyncProblemOutlined'
+import { useEffect, useState } from 'react'
 import type { SyntheticEvent } from 'react'
 import { useUiStore } from '@/stores/uiStore'
+import type { ToastMessage } from '@/stores/uiStore'
 
 export function GlobalApiFeedback() {
   const activeToast = useUiStore((state) => state.activeToast)
@@ -18,6 +20,22 @@ export function GlobalApiFeedback() {
   const conflictDialogOpen = useUiStore((state) => state.conflictDialogOpen)
   const conflictDialogMessage = useUiStore((state) => state.conflictDialogMessage)
   const closeConflictDialog = useUiStore((state) => state.closeConflictDialog)
+
+  // Snapshot the toast so its content (severity, message) survives the
+  // Snackbar's exit animation. Reading `activeToast` directly would flip the
+  // Alert to the fallback 'error' severity (red) the moment it's dismissed,
+  // because MUI keeps the Alert mounted while it animates out.
+  const [displayedToast, setDisplayedToast] = useState<ToastMessage | null>(activeToast)
+
+  useEffect(() => {
+    if (activeToast) {
+      setDisplayedToast(activeToast)
+    }
+  }, [activeToast])
+
+  const handleToastExited = () => {
+    setDisplayedToast(null)
+  }
 
   const handleToastClose = (
     _event?: Event | SyntheticEvent,
@@ -42,14 +60,15 @@ export function GlobalApiFeedback() {
     <>
       <Snackbar
         open={Boolean(activeToast)}
-        autoHideDuration={activeToast?.durationMs}
+        autoHideDuration={displayedToast?.durationMs}
         onClose={handleToastClose}
+        TransitionProps={{ onExited: handleToastExited }}
         anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
       >
         <Alert
           variant="filled"
           onClose={handleToastClose}
-          severity={activeToast?.severity ?? 'error'}
+          severity={displayedToast?.severity ?? 'info'}
           sx={{
             width: '100%',
             minWidth: { xs: 0, sm: 320 },
@@ -58,7 +77,7 @@ export function GlobalApiFeedback() {
             boxShadow: 3,
           }}
         >
-          {activeToast?.message ?? ''}
+          {displayedToast?.message ?? ''}
         </Alert>
       </Snackbar>
 

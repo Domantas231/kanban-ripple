@@ -17,7 +17,9 @@ public sealed record GoogleFileMetadata(
     string? IconLink,
     string? ThumbnailLink,
     long? Size,
-    DateTime? ModifiedTime
+    DateTime? ModifiedTime,
+    bool CanShare,
+    bool OwnedByMe
 );
 
 public sealed record GoogleFilePermission(

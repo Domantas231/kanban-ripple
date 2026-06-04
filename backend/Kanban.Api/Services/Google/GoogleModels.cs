@@ -38,7 +38,12 @@ public sealed record PermissionReportDto(
     int SharedCount,
     int AlreadySharedCount,
     int FailedCount,
-    List<string> FailedEmails
+    List<string> FailedEmails,
+    // True when one or more linked files could not be shared with the team because the linker
+    // is not the owner / lacks sharing rights on the file. The link is still saved.
+    bool ShareNotAllowed = false,
+    // Names of the files that could not be shared, for a clear user-facing message.
+    List<string>? UnshareableFileNames = null
 );
 
 public sealed record PermissionRevokeReportDto(

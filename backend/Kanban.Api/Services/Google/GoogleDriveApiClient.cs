@@ -25,7 +25,7 @@ public sealed class GoogleDriveApiClient : IGoogleDriveApiClient
     {
         using var client = _httpClientFactory.CreateClient("GoogleDriveApi");
         using var request = new HttpRequestMessage(HttpMethod.Get,
-            $"{DriveFilesBaseUrl}/{Uri.EscapeDataString(fileId)}?fields=id,name,mimeType,webViewLink,iconLink,thumbnailLink,size,modifiedTime");
+            $"{DriveFilesBaseUrl}/{Uri.EscapeDataString(fileId)}?fields=id,name,mimeType,webViewLink,iconLink,thumbnailLink,size,modifiedTime,ownedByMe,capabilities/canShare");
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
 
         var response = await client.SendAsync(request, cancellationToken);
@@ -50,7 +50,13 @@ public sealed class GoogleDriveApiClient : IGoogleDriveApiClient
                 : null,
             ModifiedTime: doc.TryGetProperty("modifiedTime", out var mod) && mod.ValueKind != JsonValueKind.Null
                 ? DateTime.Parse(mod.GetString()!, null, System.Globalization.DateTimeStyles.RoundtripKind)
-                : null
+                : null,
+            // Non-owners (and readers/commenters) generally cannot re-share; canShare reflects the
+            // caller's actual sharing capability for this file. Absent the field, assume not shareable.
+            CanShare: doc.TryGetProperty("capabilities", out var caps)
+                && caps.TryGetProperty("canShare", out var canShare)
+                && canShare.ValueKind == JsonValueKind.True,
+            OwnedByMe: doc.TryGetProperty("ownedByMe", out var owned) && owned.ValueKind == JsonValueKind.True
         );
     }
 

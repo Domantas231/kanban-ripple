@@ -1,5 +1,7 @@
 import axios, { AxiosError, type InternalAxiosRequestConfig } from 'axios'
 import { useUiStore } from '@/stores/uiStore'
+import { queryClient } from '@/lib/query-client'
+import { plannerQueryKeys } from '@/features/planner/api/query-keys'
 import type { AuthResult } from './types'
 
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? ''
@@ -101,6 +103,21 @@ function handleGlobalStatusEffects(error: AxiosError, requestUrl: string): void 
   }
 
   const status = error.response?.status
+
+  if (status === 400) {
+    const errorBody = (error.response?.data as { error?: { code?: string; message?: string } } | undefined)?.error
+    if (errorBody?.code === 'GOOGLE_REAUTH_REQUIRED') {
+      // The server auto-disconnected the dead Google account; refresh the cached
+      // status so the UI flips back to the "Connect Google" state everywhere.
+      queryClient.invalidateQueries({ queryKey: plannerQueryKeys.googleStatus })
+      useUiStore.getState().enqueueToast({
+        message: errorBody.message ?? 'Your Google account connection expired. Please reconnect.',
+        severity: 'error',
+        durationMs: 7000,
+      })
+    }
+    return
+  }
 
   if (status === 403) {
     const serverMessage = (error.response?.data as { error?: { message?: string } } | undefined)?.error?.message

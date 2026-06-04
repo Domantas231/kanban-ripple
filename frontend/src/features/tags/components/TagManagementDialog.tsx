@@ -149,19 +149,6 @@ function ColorPickerButton({ value, onChange, disabled, size = 32 }: ColorPicker
             </Tooltip>
           ))}
         </Box>
-        <Box sx={{ mt: 1.5, display: 'flex', alignItems: 'center', gap: 1 }}>
-          <Button
-            size="small"
-            variant="outlined"
-            onClick={() => nativeInputRef.current?.click()}
-            sx={{ flex: 1, textTransform: 'none' }}
-          >
-            Custom...
-          </Button>
-          <Typography variant="caption" color="text.secondary" sx={{ minWidth: 60, textAlign: 'right' }}>
-            {isValidHexColor(value) ? value : ''}
-          </Typography>
-        </Box>
         <input
           ref={nativeInputRef}
           type="color"

@@ -1,4 +1,3 @@
-import { useState } from 'react'
 import { useNavigate } from '@tanstack/react-router'
 import Avatar from '@mui/material/Avatar'
 import Card from '@mui/material/Card'
@@ -6,15 +5,10 @@ import IconButton from '@mui/material/IconButton'
 import List from '@mui/material/List'
 import ListItem from '@mui/material/ListItem'
 import ListItemButton from '@mui/material/ListItemButton'
-import ListItemIcon from '@mui/material/ListItemIcon'
 import ListItemText from '@mui/material/ListItemText'
-import Menu from '@mui/material/Menu'
-import MenuItem from '@mui/material/MenuItem'
 import Stack from '@mui/material/Stack'
 import Typography from '@mui/material/Typography'
 import ArchiveOutlinedIcon from '@mui/icons-material/ArchiveOutlined'
-import MoreHorizIcon from '@mui/icons-material/MoreHoriz'
-import OpenInNewIcon from '@mui/icons-material/OpenInNew'
 import StarIcon from '@mui/icons-material/Star'
 import StarBorderIcon from '@mui/icons-material/StarBorder'
 import ViewKanbanOutlinedIcon from '@mui/icons-material/ViewKanbanOutlined'
@@ -39,11 +33,9 @@ export function BoardListView({
   onToggleFavorite,
 }: BoardListViewProps) {
   const navigate = useNavigate()
-  const [menuAnchor, setMenuAnchor] = useState<{ el: HTMLElement; board: Board } | null>(null)
 
   return (
-    <>
-      <Card variant="outlined">
+    <Card variant="outlined">
         <List disablePadding>
           {boards.map((board, index) => {
             const cardCount = board.cardCount ?? 0
@@ -76,10 +68,10 @@ export function BoardListView({
                     {canManage ? (
                       <IconButton
                         edge="end"
-                        aria-label={`Board menu for ${board.name}`}
-                        onClick={(e) => setMenuAnchor({ el: e.currentTarget, board })}
+                        aria-label={`Archive ${board.name}`}
+                        onClick={() => onArchive(board)}
                       >
-                        <MoreHorizIcon fontSize="small" />
+                        <ArchiveOutlinedIcon fontSize="small" />
                       </IconButton>
                     ) : null}
                   </Stack>
@@ -136,43 +128,5 @@ export function BoardListView({
           })}
         </List>
       </Card>
-
-      <Menu
-        anchorEl={menuAnchor?.el}
-        open={Boolean(menuAnchor)}
-        onClose={() => setMenuAnchor(null)}
-        slotProps={{ paper: { sx: { minWidth: 160 } } }}
-      >
-        <MenuItem
-          onClick={() => {
-            if (menuAnchor) {
-              navigate({
-                to: '/projects/$projectId/boards/$boardId',
-                params: { projectId, boardId: menuAnchor.board.id },
-              })
-            }
-            setMenuAnchor(null)
-          }}
-        >
-          <ListItemIcon>
-            <OpenInNewIcon fontSize="small" />
-          </ListItemIcon>
-          <ListItemText>Open</ListItemText>
-        </MenuItem>
-        <MenuItem
-          onClick={() => {
-            if (menuAnchor) {
-              onArchive(menuAnchor.board)
-            }
-            setMenuAnchor(null)
-          }}
-        >
-          <ListItemIcon>
-            <ArchiveOutlinedIcon fontSize="small" />
-          </ListItemIcon>
-          <ListItemText>Archive</ListItemText>
-        </MenuItem>
-      </Menu>
-    </>
   )
 }

@@ -22,6 +22,10 @@ public sealed class NoOpProjectBroadcaster : IProjectBroadcaster
     public Task CommentUpdated(Guid projectId, Comment comment) => Task.CompletedTask;
     public Task CommentDeleted(Guid projectId, Guid commentId) => Task.CompletedTask;
 
+    public Task TagCreated(Guid projectId, Tag tag) => Task.CompletedTask;
+    public Task TagUpdated(Guid projectId, Tag tag) => Task.CompletedTask;
+    public Task TagDeleted(Guid projectId, Guid tagId) => Task.CompletedTask;
+
     public Task NotificationReceived(Guid userId, Notification notification) => Task.CompletedTask;
 
     public Task PlannerBlockChanged(Guid projectId, Guid userId) => Task.CompletedTask;

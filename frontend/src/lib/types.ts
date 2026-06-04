@@ -347,6 +347,10 @@ export interface PermissionReport {
   alreadySharedCount: number
   failedCount: number
   failedEmails: string[]
+  // True when a linked file could not be shared with the team because the current user
+  // is not the owner / lacks sharing rights. The file link is still saved.
+  shareNotAllowed: boolean
+  unshareableFileNames: string[]
 }
 
 export interface LinkFilesResult {

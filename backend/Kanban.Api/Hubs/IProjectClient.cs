@@ -21,6 +21,10 @@ public interface IProjectClient
     Task CommentUpdated(Comment comment);
     Task CommentDeleted(Guid commentId);
 
+    Task TagCreated(Tag tag);
+    Task TagUpdated(Tag tag);
+    Task TagDeleted(Guid tagId);
+
     Task NotificationReceived(Notification notification);
 
     Task PlannerBlockChanged(Guid userId);

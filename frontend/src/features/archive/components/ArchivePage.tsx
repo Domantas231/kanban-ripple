@@ -229,6 +229,9 @@ export function ArchivePage() {
                     location={location}
                     deletedAt={typedCard.deletedAt}
                     canRestore={canRestoreCard}
+                    restoreDisabledReason={
+                      columnArchived ? 'Restore the list first to unarchive this task.' : null
+                    }
                     onRestore={() => {
                       if (columnArchived) {
                         enqueueToast({

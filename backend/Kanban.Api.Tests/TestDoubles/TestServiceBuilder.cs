@@ -117,10 +117,13 @@ public static class TestServiceBuilder
         return new CommentService(dbContext, accessGuard, recorder, broadcaster);
     }
 
-    public static TagService BuildTagService(ApplicationDbContext dbContext)
+    public static TagService BuildTagService(
+        ApplicationDbContext dbContext,
+        IProjectBroadcaster? projectBroadcaster = null)
     {
         var accessGuard = AccessGuard(dbContext);
-        return new TagService(dbContext, accessGuard);
+        var broadcaster = projectBroadcaster ?? new NoOpProjectBroadcaster();
+        return new TagService(dbContext, accessGuard, broadcaster);
     }
 
     public static SubscriptionService BuildSubscriptionService(ApplicationDbContext dbContext)

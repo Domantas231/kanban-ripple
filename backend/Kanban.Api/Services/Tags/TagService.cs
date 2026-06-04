@@ -1,5 +1,6 @@
 using Kanban.Api.Data;
 using Kanban.Api.Exceptions;
+using Kanban.Api.Hubs;
 using Kanban.Api.Models;
 using Kanban.Api.Services.Authorization;
 using Microsoft.EntityFrameworkCore;
@@ -10,12 +11,29 @@ public sealed class TagService : ITagService
 {
     private readonly ApplicationDbContext _dbContext;
     private readonly IProjectAccessGuard _accessGuard;
+    private readonly IProjectBroadcaster _projectBroadcaster;
 
-    public TagService(ApplicationDbContext dbContext, IProjectAccessGuard accessGuard)
+    public TagService(
+        ApplicationDbContext dbContext,
+        IProjectAccessGuard accessGuard,
+        IProjectBroadcaster projectBroadcaster)
     {
         _dbContext = dbContext;
         _accessGuard = accessGuard;
+        _projectBroadcaster = projectBroadcaster;
     }
+
+    // Cards (and the board's tag list and filters) embed a denormalized copy of
+    // each tag, so changing a tag must reach every connected client in the project.
+    // The payload is kept lean (no Board/CardTags graph); clients refetch on receipt.
+    private static Tag ToBroadcastPayload(Tag tag) => new()
+    {
+        Id = tag.Id,
+        BoardId = tag.BoardId,
+        Name = tag.Name,
+        Color = tag.Color,
+        CreatedAt = tag.CreatedAt
+    };
 
     public async Task<Tag> CreateAsync(Guid boardId, Guid userId, CreateTagDto data, CancellationToken cancellationToken = default)
     {
@@ -62,6 +80,8 @@ public sealed class TagService : ITagService
 
         _dbContext.Tags.Add(tag);
         await _dbContext.SaveChangesAsync(cancellationToken);
+
+        await _projectBroadcaster.TagCreated(board.ProjectId, ToBroadcastPayload(tag));
 
         return tag;
     }
@@ -139,6 +159,9 @@ public sealed class TagService : ITagService
         }
 
         await _dbContext.SaveChangesAsync(cancellationToken);
+
+        await _projectBroadcaster.TagUpdated(tag.Board.ProjectId, ToBroadcastPayload(tag));
+
         return tag;
     }
 
@@ -155,6 +178,8 @@ public sealed class TagService : ITagService
 
         await _accessGuard.RequireAccessAsync(tag.Board.ProjectId, userId, ProjectRole.Member);
 
+        var projectId = tag.Board.ProjectId;
+
         var cardTags = await _dbContext.CardTags
             .Where(x => x.TagId == tag.Id)
             .ToListAsync(cancellationToken);
@@ -166,6 +191,8 @@ public sealed class TagService : ITagService
 
         _dbContext.Tags.Remove(tag);
         await _dbContext.SaveChangesAsync(cancellationToken);
+
+        await _projectBroadcaster.TagDeleted(projectId, tagId);
     }
 
     private static string NormalizeName(string name) => name.Trim();

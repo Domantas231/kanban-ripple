@@ -95,7 +95,7 @@ import { useUiStore } from '@/stores/uiStore'
 import type { Card as BoardCard, Column, Guid, PlannedBlock, ProjectRole } from '@/lib/types'
 import { CardList } from '@/features/cards'
 import { CardDetailDialog } from '@/features/cards'
-import { CardListSkeleton } from '@/components/loading/CardListSkeleton'
+import { BoardSkeleton } from '@/components/loading/BoardSkeleton'
 import { SubscribeButton } from '@/features/subscriptions'
 import { BoardFilterControl } from '@/features/search'
 import { TagManagementDialog } from '@/features/tags'
@@ -300,6 +300,14 @@ export function BoardView({ projectId, boardId, search }: BoardViewProps) {
     parsedFilters.tagIds.length > 0 || parsedFilters.userIds.length > 0
   const filteredCardsQuery = useFilterCards(boardId, parsedFilters)
 
+  // Show the board skeleton until BOTH columns and cards have resolved, so the
+  // real board appears fully populated instead of flashing empty columns while
+  // cards are still loading.
+  const isBoardLoading =
+    columnsQuery.isLoading ||
+    cardsQuery.isLoading ||
+    (hasActiveBackendFilters && filteredCardsQuery.isLoading)
+
   const visibleCards = useMemo(() => {
     const base = hasActiveBackendFilters ? (filteredCardsQuery.data ?? []) : cards
     if (!hasActiveClientSide) {
@@ -365,6 +373,14 @@ export function BoardView({ projectId, boardId, search }: BoardViewProps) {
   const purgeColumnMutation = usePurgeColumn()
   const purgeCardMutation = usePurgeCard()
   const [archiveDrawerTab, setArchiveDrawerTab] = useState<'columns' | 'cards'>('columns')
+
+  // A card whose list is also archived cannot be restored on its own — the list
+  // must be restored first. Cross-reference against the archived columns already
+  // loaded for the "Lists" tab so this does not depend on card.column.deletedAt.
+  const archivedColumnIds = useMemo(
+    () => new Set((archivedColumnsQuery.data ?? []).map((column) => column.id)),
+    [archivedColumnsQuery.data],
+  )
 
   const plannerOpen = useUiStore((state) => state.boardPlannerOpen)
   const setPlannerOpen = useUiStore((state) => state.setBoardPlannerOpen)
@@ -1446,19 +1462,7 @@ export function BoardView({ projectId, boardId, search }: BoardViewProps) {
               ) : null}
             </Stack>
 
-            {columnsQuery.isLoading ? (
-              <Typography color="text.secondary">Loading lists...</Typography>
-            ) : null}
-
-            {cardsQuery.isLoading ? (
-              <Box sx={{ maxWidth: 360 }}>
-                <CardListSkeleton />
-              </Box>
-            ) : null}
-
-            {hasActiveBackendFilters && filteredCardsQuery.isLoading ? (
-              <Typography color="text.secondary">Applying filters...</Typography>
-            ) : null}
+            {isBoardLoading ? <BoardSkeleton /> : null}
 
             {columnsQuery.isError ? <Alert severity="error">Unable to load lists.</Alert> : null}
 
@@ -1478,7 +1482,7 @@ export function BoardView({ projectId, boardId, search }: BoardViewProps) {
               <Alert severity="error">Unable to archive list.</Alert>
             ) : null}
 
-            {!columnsQuery.isLoading ? (
+            {!isBoardLoading ? (
               <DndContext
                 sensors={sensors}
                 collisionDetection={kanbanCollisionDetection}
@@ -2189,22 +2193,36 @@ export function BoardView({ projectId, boardId, search }: BoardViewProps) {
                   hasItems={(archivedCardsQuery.data?.items.length ?? 0) > 0}
                 >
                   <List disablePadding>
-                    {(archivedCardsQuery.data?.items ?? []).map((card) => (
+                    {(archivedCardsQuery.data?.items ?? []).map((card) => {
+                      const listArchived = archivedColumnIds.has(card.columnId)
+                      return (
                       <ListItem
                         key={card.id}
                         secondaryAction={
                           canManageBoards ? (
                             <Stack direction="row" spacing={0.5}>
-                              <Tooltip title="Restore task">
-                                <IconButton
-                                  edge="end"
-                                  size="small"
-                                  onClick={() => restoreCardMutation.mutate(card.id)}
-                                  disabled={restoreCardMutation.isPending || purgeCardMutation.isPending}
-                                  aria-label={`Restore task ${card.title}`}
-                                >
-                                  <RestoreIcon fontSize="small" />
-                                </IconButton>
+                              <Tooltip
+                                title={
+                                  listArchived
+                                    ? 'Restore the list first to unarchive this task'
+                                    : 'Restore task'
+                                }
+                              >
+                                <span>
+                                  <IconButton
+                                    edge="end"
+                                    size="small"
+                                    onClick={() => restoreCardMutation.mutate(card.id)}
+                                    disabled={
+                                      listArchived ||
+                                      restoreCardMutation.isPending ||
+                                      purgeCardMutation.isPending
+                                    }
+                                    aria-label={`Restore task ${card.title}`}
+                                  >
+                                    <RestoreIcon fontSize="small" />
+                                  </IconButton>
+                                </span>
                               </Tooltip>
                               <Tooltip title="Delete permanently">
                                 <IconButton
@@ -2240,7 +2258,8 @@ export function BoardView({ projectId, boardId, search }: BoardViewProps) {
                           secondaryTypographyProps={{ variant: 'caption' }}
                         />
                       </ListItem>
-                    ))}
+                      )
+                    })}
                   </List>
                 </ArchiveDrawerList>
               ) : null}

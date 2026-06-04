@@ -21,6 +21,10 @@ public interface IProjectBroadcaster
     Task CommentUpdated(Guid projectId, Comment comment);
     Task CommentDeleted(Guid projectId, Guid commentId);
 
+    Task TagCreated(Guid projectId, Tag tag);
+    Task TagUpdated(Guid projectId, Tag tag);
+    Task TagDeleted(Guid projectId, Guid tagId);
+
     Task NotificationReceived(Guid userId, Notification notification);
 
     Task PlannerBlockChanged(Guid projectId, Guid userId);

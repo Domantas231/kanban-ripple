@@ -78,15 +78,21 @@ export function useGooglePicker() {
           const google = (window as unknown as Record<string, unknown>).google as {
             picker: {
               PickerBuilder: new () => PickerBuilderInstance
+              DocsView: new (viewId?: string) => DocsViewInstance
               Feature: { MULTISELECT_ENABLED: string }
               ViewId: { DOCS: string }
               Action: { PICKED: string; CANCEL: string }
             }
           }
 
+          type DocsViewInstance = {
+            setOwnedByMe: (ownedByMe: boolean) => DocsViewInstance
+            setIncludeFolders: (include: boolean) => DocsViewInstance
+          }
+
           type PickerBuilderInstance = {
             enableFeature: (feature: string) => PickerBuilderInstance
-            addView: (viewId: string) => PickerBuilderInstance
+            addView: (view: string | DocsViewInstance) => PickerBuilderInstance
             setOAuthToken: (token: string) => PickerBuilderInstance
             setCallback: (cb: (data: PickerCallbackData) => void) => PickerBuilderInstance
             build: () => { setVisible: (visible: boolean) => void }
@@ -101,9 +107,13 @@ export function useGooglePicker() {
             }>
           }
 
+          const ownedDocsView = new google.picker.DocsView(google.picker.ViewId.DOCS)
+            .setOwnedByMe(true)
+            .setIncludeFolders(true)
+
           const picker = new google.picker.PickerBuilder()
             .enableFeature(google.picker.Feature.MULTISELECT_ENABLED)
-            .addView(google.picker.ViewId.DOCS)
+            .addView(ownedDocsView)
             .setOAuthToken(accessToken)
             .setCallback((data: PickerCallbackData) => {
               if (data.action === google.picker.Action.PICKED && data.docs) {

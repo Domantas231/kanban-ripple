@@ -1,6 +1,7 @@
 import Box from '@mui/material/Box'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { RefObject } from 'react'
+import { useUiStore } from '@/stores/uiStore'
 
 interface BoardScrollbarProps {
   /** The horizontally scrolling element this slider controls. */
@@ -35,6 +36,7 @@ export function BoardScrollbar({ scrollRef }: BoardScrollbarProps) {
   const trackRef = useRef<HTMLDivElement | null>(null)
   const dragStartRef = useRef<{ pointerX: number; scrollLeft: number } | null>(null)
   const [metrics, setMetrics] = useState<ScrollMetrics>(INITIAL_METRICS)
+  const sidebarCollapsed = useUiStore((state) => state.sidebarCollapsed)
 
   const measure = useCallback(() => {
     const scroller = scrollRef.current
@@ -168,7 +170,7 @@ export function BoardScrollbar({ scrollRef }: BoardScrollbarProps) {
         display: { xs: 'none', sm: isScrollable ? 'block' : 'none' },
         position: 'fixed',
         bottom: 16,
-        left: 128,
+        left: sidebarCollapsed ? 128 : 320,
         right: 64,
         zIndex: 5,
         width: 'auto',

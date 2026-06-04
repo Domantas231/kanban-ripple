@@ -53,6 +53,9 @@ public sealed class GoogleDriveLinkService : IGoogleDriveLinkService
 
         var existingSet = new HashSet<string>(existingFileIds);
         var createdLinks = new List<GoogleDriveLink>();
+        // Tracks whether the linker is actually allowed to re-share each file with the team.
+        // Readers/commenters and non-owners typically cannot (canShare == false).
+        var canShareByFileId = new Dictionary<string, bool>();
 
         foreach (var fileId in googleFileIds)
         {
@@ -62,6 +65,7 @@ public sealed class GoogleDriveLinkService : IGoogleDriveLinkService
             }
 
             var metadata = await _googleDriveApiClient.GetFileMetadataAsync(accessToken, fileId, cancellationToken);
+            canShareByFileId[metadata.Id] = metadata.CanShare;
 
             var link = new GoogleDriveLink
             {
@@ -97,7 +101,7 @@ public sealed class GoogleDriveLinkService : IGoogleDriveLinkService
             await _projectBroadcaster.CardUpdated(projectId, card);
         }
 
-        var permissionReport = await ShareWithProjectMembersAsync(accessToken, projectId, userId, createdLinks, sharePermission, cancellationToken);
+        var permissionReport = await ShareWithProjectMembersAsync(accessToken, projectId, userId, createdLinks, sharePermission, canShareByFileId, cancellationToken);
 
         var linkerUserName = await _dbContext.Users
             .Where(u => u.Id == userId)
@@ -280,6 +284,7 @@ public sealed class GoogleDriveLinkService : IGoogleDriveLinkService
         Guid currentUserId,
         List<GoogleDriveLink> newLinks,
         GoogleDriveSharePermission sharePermission,
+        IReadOnlyDictionary<string, bool> canShareByFileId,
         CancellationToken cancellationToken)
     {
         if (newLinks.Count == 0)
@@ -307,9 +312,18 @@ public sealed class GoogleDriveLinkService : IGoogleDriveLinkService
         var alreadySharedCount = 0;
         var failedCount = 0;
         var failedEmails = new List<string>();
+        var unshareableFileNames = new List<string>();
 
         foreach (var link in newLinks)
         {
+            // The linker isn't the owner / lacks sharing rights: the file link is still saved,
+            // but we can't grant teammates access. Surface this instead of failing silently.
+            if (canShareByFileId.TryGetValue(link.GoogleFileId, out var canShare) && !canShare)
+            {
+                unshareableFileNames.Add(link.Name);
+                continue;
+            }
+
             List<GoogleFilePermission> existingPermissions;
             try
             {
@@ -366,7 +380,13 @@ public sealed class GoogleDriveLinkService : IGoogleDriveLinkService
             }
         }
 
-        return new PermissionReportDto(sharedCount, alreadySharedCount, failedCount, failedEmails);
+        return new PermissionReportDto(
+            sharedCount,
+            alreadySharedCount,
+            failedCount,
+            failedEmails,
+            ShareNotAllowed: unshareableFileNames.Count > 0,
+            UnshareableFileNames: unshareableFileNames);
     }
 
     public async Task<GoogleDriveLinkDto> UpdatePermissionAsync(Guid linkId, Guid userId, GoogleDriveSharePermission sharePermission, CancellationToken cancellationToken = default)

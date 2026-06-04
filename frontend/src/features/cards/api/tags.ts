@@ -59,6 +59,9 @@ export function useUpdateTag() {
     mutationFn: ({ id, data }: { id: Guid; boardId: Guid; data: UpdateTagRequest }) => updateTag(id, data),
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: cardsQueryKeys.boardTags(variables.boardId) })
+      // Cards embed a denormalized copy of each tag (name/color), so refetch
+      // board data to update the chips without a full page reload.
+      queryClient.invalidateQueries({ queryKey: boardsQueryKeys.boards })
     },
   })
 }
@@ -70,6 +73,8 @@ export function useDeleteTag() {
     mutationFn: ({ id }: { id: Guid; boardId: Guid }) => deleteTag(id),
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: cardsQueryKeys.boardTags(variables.boardId) })
+      // Remove the deleted tag's chips from cards without a full page reload.
+      queryClient.invalidateQueries({ queryKey: boardsQueryKeys.boards })
     },
   })
 }

@@ -196,6 +196,22 @@ class SignalRService {
       invalidateCommentQueries as (...args: never[]) => void,
     )
 
+    const invalidateTagQueries = () => {
+      // Cards, the board's tag list, and filter panels all embed a denormalized
+      // copy of each tag (name/color), so refresh both the board and card trees
+      // when a tag changes elsewhere in the project.
+      void queryClient.invalidateQueries({
+        predicate: (query) => query.queryKey.some((segment) => segment === 'boards'),
+      })
+      void queryClient.invalidateQueries({
+        predicate: (query) => query.queryKey.some((segment) => segment === 'cards'),
+      })
+    }
+
+    registerAliases(['TagCreated', 'tagCreated'], invalidateTagQueries)
+    registerAliases(['TagUpdated', 'tagUpdated'], invalidateTagQueries)
+    registerAliases(['TagDeleted', 'tagDeleted'], invalidateTagQueries)
+
     registerAliases(['NotificationReceived', 'notificationReceived'], invalidateNotificationQueries)
 
     const invalidatePlannerQueries = () => {

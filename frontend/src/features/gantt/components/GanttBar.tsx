@@ -351,7 +351,6 @@ export const GanttBar = memo(function GanttBar({
   const spentRatio = hasEstimate ? Math.min(spentMinutes / estimatedMinutes, 1) : 0
   const scheduledRatio = hasEstimate ? Math.min(scheduledMinutes / estimatedMinutes, 1) : 0
   const isOverrun = hasEstimate && spentMinutes > estimatedMinutes
-  const isEstimateFilled = hasEstimate && spentMinutes >= estimatedMinutes
   const hasHoursFill = hasEstimate && spentMinutes > 0
   const hasScheduledFill = hasEstimate && scheduledMinutes > spentMinutes
   const spentPercent = hasEstimate ? Math.round((spentMinutes / estimatedMinutes) * 100) : 0
@@ -359,9 +358,10 @@ export const GanttBar = memo(function GanttBar({
   const progressFillColor = theme.palette.primary.main
   const scheduledFillColor = alpha(progressFillColor, theme.palette.mode === 'dark' ? 0.28 : 0.22)
 
-  // Estimated work is fully logged: suppress the red overdue treatment even if
-  // the calendar end date has passed, since the planned hours are accounted for.
-  const showAsOverdue = isOverdue && !isEstimateFilled
+  // A past-due card stays red until it actually reaches the last column. We no
+  // longer suppress the warning just because planned hours have elapsed, since
+  // elapsed plan time does not mean the work is done.
+  const showAsOverdue = isOverdue
 
   // Flat styling: muted gray base, teal fill proportional to logged time.
   const mutedGray =

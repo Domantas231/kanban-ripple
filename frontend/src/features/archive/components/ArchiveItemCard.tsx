@@ -2,6 +2,7 @@ import Button from '@mui/material/Button'
 import Card from '@mui/material/Card'
 import CardContent from '@mui/material/CardContent'
 import Stack from '@mui/material/Stack'
+import Tooltip from '@mui/material/Tooltip'
 import Typography from '@mui/material/Typography'
 import { formatDeletedAt } from '@/features/archive/utils/archiveFormatters'
 
@@ -12,6 +13,7 @@ interface ArchiveItemCardProps {
   canRestore: boolean
   onRestore: () => void
   restorePending: boolean
+  restoreDisabledReason?: string | null
   canDelete?: boolean
   onDelete?: () => void
   deletePending?: boolean
@@ -24,10 +26,23 @@ export function ArchiveItemCard({
   canRestore,
   onRestore,
   restorePending,
+  restoreDisabledReason = null,
   canDelete = false,
   onDelete,
   deletePending = false,
 }: ArchiveItemCardProps) {
+  const isRestoreBlocked = Boolean(restoreDisabledReason)
+  const restoreButton = (
+    <Button
+      variant="outlined"
+      size="small"
+      onClick={onRestore}
+      disabled={restorePending || deletePending || isRestoreBlocked}
+      sx={{ width: 'fit-content' }}
+    >
+      {restorePending ? 'Restoring...' : 'Restore'}
+    </Button>
+  )
   return (
     <Card variant="outlined">
       <CardContent>
@@ -41,15 +56,13 @@ export function ArchiveItemCard({
           </Typography>
           <Stack direction="row" spacing={1}>
             {canRestore ? (
-              <Button
-                variant="outlined"
-                size="small"
-                onClick={onRestore}
-                disabled={restorePending || deletePending}
-                sx={{ width: 'fit-content' }}
-              >
-                {restorePending ? 'Restoring...' : 'Restore'}
-              </Button>
+              isRestoreBlocked ? (
+                <Tooltip title={restoreDisabledReason}>
+                  <span style={{ width: 'fit-content' }}>{restoreButton}</span>
+                </Tooltip>
+              ) : (
+                restoreButton
+              )
             ) : null}
             {canDelete && onDelete ? (
               <Button

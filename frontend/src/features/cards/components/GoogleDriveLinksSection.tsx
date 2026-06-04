@@ -34,6 +34,12 @@ function formatPermissionReport(report: PermissionReport): string {
   if (report.alreadySharedCount > 0) {
     parts.push(`${report.alreadySharedCount} already had access`)
   }
+  if (report.shareNotAllowed) {
+    const names = report.unshareableFileNames.join(', ')
+    parts.push(
+      `Linked${names ? ` ${names}` : ''}, but you're not the owner so it couldn't be shared with the team — they'll need access from the file owner`,
+    )
+  }
   if (report.failedCount > 0) {
     parts.push(`Failed to share with: ${report.failedEmails.join(', ')}`)
   }
@@ -73,9 +79,10 @@ function GoogleDriveLinksSection({ cardId, canManageCards, currentUserId, isCard
       void queryClient.invalidateQueries({ queryKey: cardsQueryKeys.cardGoogleDriveLinks(cardId) })
       const reportMsg = formatPermissionReport(result.permissionReport)
       if (reportMsg) {
+        const hasWarning = result.permissionReport.failedCount > 0 || result.permissionReport.shareNotAllowed
         enqueueToast({
           message: reportMsg,
-          severity: result.permissionReport.failedCount > 0 ? 'warning' : 'success',
+          severity: hasWarning ? 'warning' : 'success',
           durationMs: 6000,
         })
       } else {

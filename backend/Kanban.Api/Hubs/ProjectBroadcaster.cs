@@ -44,6 +44,15 @@ public sealed class ProjectBroadcaster(IHubContext<ProjectHub, IProjectClient> h
     public Task CommentDeleted(Guid projectId, Guid commentId)
         => Group(projectId).CommentDeleted(commentId);
 
+    public Task TagCreated(Guid projectId, Tag tag)
+        => Group(projectId).TagCreated(tag);
+
+    public Task TagUpdated(Guid projectId, Tag tag)
+        => Group(projectId).TagUpdated(tag);
+
+    public Task TagDeleted(Guid projectId, Guid tagId)
+        => Group(projectId).TagDeleted(tagId);
+
     public Task NotificationReceived(Guid userId, Notification notification)
         => hubContext.Clients.User(userId.ToString()).NotificationReceived(notification);
 

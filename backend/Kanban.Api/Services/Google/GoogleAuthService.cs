@@ -14,6 +14,7 @@ namespace Kanban.Api.Services.Google;
 public sealed class GoogleAuthService : IGoogleAuthService
 {
     private const string ProtectorPurpose = "GoogleOAuthTokens";
+    private const string GoogleReauthRequiredCode = "GOOGLE_REAUTH_REQUIRED";
     private const string GoogleAuthEndpoint = "https://accounts.google.com/o/oauth2/v2/auth";
     private const string GoogleTokenEndpoint = "https://oauth2.googleapis.com/token";
     private const string GoogleUserInfoEndpoint = "https://www.googleapis.com/oauth2/v2/userinfo";
@@ -212,7 +213,13 @@ public sealed class GoogleAuthService : IGoogleAuthService
         }
     }
 
-    public async Task<string> GetAccessTokenAsync(Guid userId, CancellationToken cancellationToken = default)
+    public Task<string> GetAccessTokenAsync(Guid userId, CancellationToken cancellationToken = default)
+        => GetAccessTokenInternalAsync(userId, autoDisconnectOnInvalidGrant: true, cancellationToken);
+
+    private async Task<string> GetAccessTokenInternalAsync(
+        Guid userId,
+        bool autoDisconnectOnInvalidGrant,
+        CancellationToken cancellationToken)
     {
         var account = await _dbContext.UserGoogleAccounts
             .FirstOrDefaultAsync(x => x.UserId == userId, cancellationToken)
@@ -239,6 +246,23 @@ public sealed class GoogleAuthService : IGoogleAuthService
 
         if (!tokenResponse.IsSuccessStatusCode)
         {
+            // invalid_grant means the refresh token is permanently dead (user revoked
+            // access, changed password, or 6+ months of inactivity). There is nothing
+            // to retry, so auto-disconnect the account locally and surface a friendly,
+            // typed error the UI can turn into a "please reconnect" toast.
+            if (autoDisconnectOnInvalidGrant && IsInvalidGrant(tokenJson))
+            {
+                _logger.LogWarning(
+                    "Google refresh token for user {UserId} is no longer valid (invalid_grant); auto-disconnecting the account.",
+                    userId);
+
+                await ClearAccountLocallyAsync(account, cancellationToken);
+
+                throw new BadRequestException(
+                    "Your Google account connection has expired. Please reconnect your Google account.",
+                    GoogleReauthRequiredCode);
+            }
+
             throw new BadRequestException($"Failed to refresh Google access token: {tokenJson}");
         }
 
@@ -296,7 +320,9 @@ public sealed class GoogleAuthService : IGoogleAuthService
         string? accessToken = null;
         try
         {
-            accessToken = await GetAccessTokenAsync(userId, cancellationToken);
+            // Don't auto-clear here: this method already removes the account below,
+            // so a re-entrant cleanup would try to delete an already-detached entity.
+            accessToken = await GetAccessTokenInternalAsync(userId, autoDisconnectOnInvalidGrant: false, cancellationToken);
         }
         catch (Exception ex)
         {
@@ -321,6 +347,35 @@ public sealed class GoogleAuthService : IGoogleAuthService
                 // Revocation failure should not block disconnect
             }
         }
+
+        _dbContext.UserGoogleAccounts.Remove(account);
+        await _dbContext.SaveChangesAsync(cancellationToken);
+    }
+
+    private static bool IsInvalidGrant(string tokenJson)
+    {
+        try
+        {
+            var data = JsonSerializer.Deserialize<JsonElement>(tokenJson);
+            return data.ValueKind == JsonValueKind.Object
+                && data.TryGetProperty("error", out var error)
+                && string.Equals(error.GetString(), "invalid_grant", StringComparison.Ordinal);
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Removes the stored Google account and soft-deletes the user's Drive links
+    /// without calling the Drive API. Used when the refresh token is already dead,
+    /// so any Drive permission revocation would fail anyway. Mirrors a manual
+    /// disconnect minus the remote cleanup.
+    /// </summary>
+    private async Task ClearAccountLocallyAsync(UserGoogleAccount account, CancellationToken cancellationToken)
+    {
+        await CleanupUserDriveLinksAsync(account.UserId, accessToken: null, cancellationToken);
 
         _dbContext.UserGoogleAccounts.Remove(account);
         await _dbContext.SaveChangesAsync(cancellationToken);
