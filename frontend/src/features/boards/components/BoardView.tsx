@@ -50,6 +50,7 @@ import ListItemIcon from '@mui/material/ListItemIcon'
 import ListItemText from '@mui/material/ListItemText'
 import Menu from '@mui/material/Menu'
 import MenuItem from '@mui/material/MenuItem'
+import Portal from '@mui/material/Portal'
 import Stack from '@mui/material/Stack'
 import Tab from '@mui/material/Tab'
 import Tabs from '@mui/material/Tabs'
@@ -111,6 +112,7 @@ import {
   blockHeight as plannerBlockHeight,
   ROW_HEIGHT_PX as PLANNER_ROW_HEIGHT,
 } from '@/features/planner'
+import { BoardScrollbar } from './BoardScrollbar'
 
 export type BoardSearch = {
   cardId?: string
@@ -1841,6 +1843,12 @@ export function BoardView({ projectId, boardId, search }: BoardViewProps) {
                     </DragOverlay>
                 </Box>
               </DndContext>
+            ) : null}
+
+            {!columnsQuery.isLoading ? (
+              <Portal>
+                <BoardScrollbar scrollRef={columnsScrollRef} />
+              </Portal>
             ) : null}
 
             {!columnsQuery.isLoading && orderedColumns.length === 0 && !canManageBoards ? (

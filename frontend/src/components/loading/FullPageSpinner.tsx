@@ -4,7 +4,7 @@ type FullPageSpinnerProps = {
   label?: string
 }
 
-export function FullPageSpinner({ label = 'Loading workspace...' }: FullPageSpinnerProps) {
+export function FullPageSpinner({ label = "Loading..." }: FullPageSpinnerProps) {
   return (
     <Box
       role="status"

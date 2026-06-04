@@ -9,8 +9,6 @@ namespace Kanban.Api.Services.Cards;
 
 public sealed class CardQueryService : ICardQueryService
 {
-    private const int DefaultBoardCardsPageSize = 50;
-    private const int MaxBoardCardsPageSize = 50;
     private const int DefaultSearchCardsPageSize = 25;
     private const int MaxSearchCardsPageSize = 25;
     private const int DefaultArchivedCardsPageSize = 25;
@@ -44,16 +42,9 @@ public sealed class CardQueryService : ICardQueryService
             .FirstAsync(cancellationToken);
         await _accessGuard.RequireAccessAsync(boardProjectId, userId, ProjectRole.Viewer, cancellationToken);
 
-        var effectivePage = page < 1 ? 1 : page;
-        var effectivePageSize = pageSize <= 0
-            ? DefaultBoardCardsPageSize
-            : Math.Min(pageSize, MaxBoardCardsPageSize);
-
         var query = _dbContext.Cards
             .AsNoTracking()
             .Where(x => x.Column.BoardId == boardId);
-
-        var totalCount = await query.CountAsync(cancellationToken);
 
         var items = await query
             .Include(x => x.CardTags)
@@ -68,13 +59,11 @@ public sealed class CardQueryService : ICardQueryService
             .OrderBy(x => x.Column.Position)
             .ThenBy(x => x.Position)
             .ThenBy(x => x.Id)
-            .Skip((effectivePage - 1) * effectivePageSize)
-            .Take(effectivePageSize)
             .ToListAsync(cancellationToken);
 
         await PopulatePlannedBlockMinutesAsync(items, cancellationToken);
 
-        return new PaginatedResponse<Card>(items, effectivePage, effectivePageSize, totalCount);
+        return new PaginatedResponse<Card>(items, 1, items.Count, items.Count);
     }
 
     public async Task<PaginatedResponse<Card>> SearchAsync(Guid projectId, Guid userId, string query, int page, int pageSize, CancellationToken cancellationToken = default)

@@ -256,7 +256,7 @@ export function ProjectsListPage() {
               size="small"
               startIcon={<AddIcon />}
               onClick={() => setIsCreateOpen(true)}
-              sx={{ whiteSpace: 'nowrap', display: { xs: 'none', md: 'inline-flex' } }}
+              sx={{ whiteSpace: 'nowrap', display: { xs: 'none', lg: 'inline-flex' } }}
             >
               New Workspace
             </Button>
@@ -369,7 +369,7 @@ export function ProjectsListPage() {
         sx={{
           display: isCreateOpen
             ? 'none'
-            : { xs: 'inline-flex', md: 'none' },
+            : { xs: 'inline-flex', lg: 'none' },
           position: 'fixed',
           right: 16,
           bottom: 'calc(16px + env(safe-area-inset-bottom))',

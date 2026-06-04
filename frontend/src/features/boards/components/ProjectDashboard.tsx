@@ -299,7 +299,7 @@ export function ProjectDashboard({ projectId, canManageBoards }: ProjectDashboar
                     onClick={() => setImportDialogOpen(true)}
                     sx={{
                       whiteSpace: 'nowrap',
-                      display: { xs: 'none', md: 'inline-flex' },
+                      display: { xs: 'none', lg: 'inline-flex' },
                     }}
                   >
                     Import Trello
@@ -311,7 +311,7 @@ export function ProjectDashboard({ projectId, canManageBoards }: ProjectDashboar
                     onClick={() => setCreateDialogOpen(true)}
                     sx={{
                       whiteSpace: 'nowrap',
-                      display: { xs: 'none', md: 'inline-flex' },
+                      display: { xs: 'none', lg: 'inline-flex' },
                     }}
                   >
                     New Board
@@ -524,7 +524,7 @@ export function ProjectDashboard({ projectId, canManageBoards }: ProjectDashboar
               display:
                 createDialogOpen || importDialogOpen || Boolean(archiveTarget)
                   ? 'none'
-                  : { xs: 'inline-flex', md: 'none' },
+                  : { xs: 'inline-flex', lg: 'none' },
               position: 'fixed',
               right: 16,
               bottom: 'calc(16px + env(safe-area-inset-bottom))',
