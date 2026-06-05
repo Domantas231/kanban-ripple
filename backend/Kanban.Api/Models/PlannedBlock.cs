@@ -17,6 +17,13 @@ public class PlannedBlock
     public TimeOnly StartTime { get; set; }
     public TimeOnly EndTime { get; set; }
 
+    /// <summary>
+    /// IANA time zone (e.g. "Europe/Vilnius") the wall-clock Date/StartTime/EndTime
+    /// were authored in. Used to resolve the block to an absolute UTC instant when
+    /// computing elapsed/spent time. Null is treated as UTC for backward compatibility.
+    /// </summary>
+    public string? TimeZone { get; set; }
+
     public PlannedBlockSyncStatus SyncStatus { get; set; } = PlannedBlockSyncStatus.Pending;
     public string? GoogleEventId { get; set; }
 

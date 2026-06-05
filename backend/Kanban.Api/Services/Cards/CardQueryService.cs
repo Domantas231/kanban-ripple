@@ -1,9 +1,12 @@
+using Kanban.Api.Configuration.Options;
 using Kanban.Api.Data;
 using Kanban.Api.Exceptions;
 using Kanban.Api.Models;
 using Kanban.Api.Services.Authorization;
+using Kanban.Api.Services.Planner;
 using Kanban.Api.Services.Projects;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 
 namespace Kanban.Api.Services.Cards;
 
@@ -17,11 +20,16 @@ public sealed class CardQueryService : ICardQueryService
 
     private readonly ApplicationDbContext _dbContext;
     private readonly IProjectAccessGuard _accessGuard;
+    private readonly string _plannerTimeZone;
 
-    public CardQueryService(ApplicationDbContext dbContext, IProjectAccessGuard accessGuard)
+    public CardQueryService(
+        ApplicationDbContext dbContext,
+        IProjectAccessGuard accessGuard,
+        IOptions<PlannerOptions> plannerOptions)
     {
         _dbContext = dbContext;
         _accessGuard = accessGuard;
+        _plannerTimeZone = plannerOptions.Value.DefaultTimeZone;
     }
 
     public async Task<PaginatedResponse<Card>> ListByBoardAsync(Guid boardId, Guid userId, int page, int pageSize, CancellationToken cancellationToken = default)
@@ -321,24 +329,10 @@ public sealed class CardQueryService : ICardQueryService
                     var spent = 0;
                     foreach (var row in g)
                     {
-                        var minutes = (int)Math.Round((row.EndTime - row.StartTime).TotalMinutes);
-                        if (minutes <= 0)
-                        {
-                            continue;
-                        }
-
-                        scheduled += minutes;
-
-                        var blockStart = row.Date.ToDateTime(row.StartTime, DateTimeKind.Utc);
-                        var blockEnd = row.Date.ToDateTime(row.EndTime, DateTimeKind.Utc);
-                        if (now >= blockEnd)
-                        {
-                            spent += minutes;
-                        }
-                        else if (now > blockStart)
-                        {
-                            spent += (int)Math.Round((now - blockStart).TotalMinutes);
-                        }
+                        var (rowScheduled, rowSpent) = PlannedBlockTimeCalculator.Compute(
+                            row.Date, row.StartTime, row.EndTime, _plannerTimeZone, now);
+                        scheduled += rowScheduled;
+                        spent += rowSpent;
                     }
                     return (Scheduled: scheduled, Spent: spent);
                 });

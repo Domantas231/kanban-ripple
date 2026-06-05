@@ -16,6 +16,7 @@ public static class OptionsServiceCollectionExtensions
         services.Configure<InvitationOptions>(configuration.GetSection(InvitationOptions.SectionName));
         services.Configure<ProfilePhotoOptions>(configuration.GetSection(ProfilePhotoOptions.SectionName));
         services.Configure<GoogleOAuthOptions>(configuration.GetSection(GoogleOAuthOptions.SectionName));
+        services.Configure<PlannerOptions>(configuration.GetSection(PlannerOptions.SectionName));
 
         return services;
     }
