@@ -1229,7 +1229,7 @@ function CardDetailEditor({ card, columns, tags, members, canManageCards, curren
                         </DndContext>
                       </Stack>
                     ) : (
-                      <Typography variant="body2" color="text.secondary">
+                      <Typography variant="body2" color="text.secondary" sx={{ fontStyle: 'italic' }}>
                         No subtasks yet.
                       </Typography>
                     )}
